@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PokeArena - Battle Simulator</title>
+<meta name="description" content="Competitive Pokemon battles in your browser: team builder, online lobby, random battles and an AI opponent. Every gimmick, every match.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='44' fill='%2310141c' stroke='%2336e2b4' stroke-width='8'/><path d='M6 50h36a8 8 0 0 0 16 0h36' fill='none' stroke='%2336e2b4' stroke-width='8'/></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand" id="brand-home" role="button" tabindex="0">
+    <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true">
+      <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" stroke-width="9"/>
+      <path d="M10 50h28a12 12 0 0 0 24 0h28" fill="none" stroke="currentColor" stroke-width="9"/>
+    </svg>
+    <span>PokeArena</span>
+  </div>
+  <nav class="tabs" aria-label="Main">
+    <button class="tab active" data-screen="home">Battle</button>
+    <button class="tab" data-screen="teambuilder">Teambuilder</button>
+  </nav>
+  <div class="topbar-right">
+    <button class="icon-btn" id="audio-toggle" title="Toggle sound" aria-label="Toggle sound">
+      <svg id="audio-on-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+      <svg id="audio-off-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+    </button>
+    <div class="name-chip" id="name-chip" role="button" tabindex="0" title="Change name">…</div>
+  </div>
+</header>
+
+<main id="app">
+
+  <!-- ============ HOME / LOBBY ============ -->
+  <section class="screen active" id="screen-home">
+    <div class="home-grid">
+      <div class="home-actions">
+        <h1 class="home-title">Pick your battle</h1>
+        <div class="action-card" id="card-random">
+          <div class="action-art art-random"></div>
+          <div class="action-body">
+            <h2>Random Battle</h2>
+            <p>Queue up and get matched with a random team. Tera, Mega, Z-Moves and Dynamax all enabled.</p>
+            <button class="btn btn-primary" id="btn-queue">Find opponent</button>
+            <span class="queue-status" id="queue-status" hidden>Searching for an opponent…
+              <button class="btn btn-ghost btn-sm" id="btn-queue-cancel">Cancel</button></span>
+          </div>
+        </div>
+        <div class="action-card" id="card-bot">
+          <div class="action-art art-bot"></div>
+          <div class="action-body">
+            <h2>Battle the AI</h2>
+            <p>Fight a bot trainer. Paste a Gemini API key to face a smarter, chattier opponent.</p>
+            <div class="bot-controls">
+              <input type="password" id="gemini-key" class="input" placeholder="Gemini API key (optional)" autocomplete="off">
+              <select id="bot-mode" class="input">
+                <option value="random">Random teams</option>
+                <option value="team">Use my team</option>
+              </select>
+              <button class="btn btn-primary" id="btn-bot">Start bot battle</button>
+            </div>
+          </div>
+        </div>
+        <div class="action-card" id="card-challenge">
+          <div class="action-art art-versus"></div>
+          <div class="action-body">
+            <h2>Challenge a Trainer</h2>
+            <p>Pick someone from the lobby and battle with random teams or your own builds.</p>
+            <p class="hint" id="challenge-hint">Select a trainer from the list to send a challenge.</p>
+          </div>
+        </div>
+      </div>
+      <aside class="lobby-panel">
+        <h2 class="panel-title">Online trainers <span class="count-badge" id="online-count">0</span></h2>
+        <ul class="user-list" id="user-list"></ul>
+        <div class="empty-lobby" id="empty-lobby">
+          <p>Nobody else is online right now. Open a second tab to test, or battle the AI.</p>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ TEAMBUILDER ============ -->
+  <section class="screen" id="screen-teambuilder">
+    <div class="tb-grid">
+      <aside class="tb-sidebar">
+        <h2 class="panel-title">My teams</h2>
+        <ul class="team-list" id="team-list"></ul>
+        <div class="tb-sidebar-actions">
+          <button class="btn btn-primary btn-block" id="btn-new-team">New team</button>
+          <button class="btn btn-ghost btn-block" id="btn-random-fill">Generate random team</button>
+        </div>
+      </aside>
+      <div class="tb-main" id="tb-main">
+        <div class="tb-header">
+          <input class="input team-name-input" id="team-name" placeholder="Team name" maxlength="30">
+          <div class="tb-header-actions">
+            <button class="btn btn-ghost" id="btn-import">Import</button>
+            <button class="btn btn-ghost" id="btn-export">Export</button>
+            <button class="btn btn-ghost" id="btn-validate">Validate</button>
+            <button class="btn btn-danger-ghost" id="btn-delete-team">Delete</button>
+          </div>
+        </div>
+        <div class="slot-row" id="slot-row"></div>
+        <div class="slot-editor" id="slot-editor">
+          <p class="hint">Select a slot above to edit a Pokemon.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ BATTLE ============ -->
+  <section class="screen" id="screen-battle">
+    <div class="battle-grid">
+      <div class="battle-stage-wrap">
+        <div class="battle-stage" id="battle-stage">
+          <div class="weather-layer" id="weather-layer"></div>
+          <div class="field-banner" id="field-banner"></div>
+
+          <div class="combatant foe" id="foe-zone">
+            <div class="hud" id="foe-hud" hidden>
+              <div class="hud-top">
+                <span class="hud-name" id="foe-name"></span>
+                <span class="hud-level" id="foe-level"></span>
+                <span class="status-chip" id="foe-status" hidden></span>
+              </div>
+              <div class="hp-bar"><div class="hp-fill" id="foe-hp"></div></div>
+              <div class="hud-bottom">
+                <span class="hp-text mono" id="foe-hp-text"></span>
+                <span class="boost-chips" id="foe-boosts"></span>
+              </div>
+              <div class="hazard-chips" id="foe-hazards"></div>
+            </div>
+            <div class="sprite-anchor">
+              <img class="sprite" id="foe-sprite" alt="" draggable="false">
+              <div class="platform"></div>
+              <div class="fx-layer" id="foe-fx"></div>
+            </div>
+            <div class="ball-row" id="foe-balls"></div>
+          </div>
+
+          <div class="combatant ally" id="ally-zone">
+            <div class="hud" id="ally-hud" hidden>
+              <div class="hud-top">
+                <span class="hud-name" id="ally-name"></span>
+                <span class="hud-level" id="ally-level"></span>
+                <span class="status-chip" id="ally-status" hidden></span>
+              </div>
+              <div class="hp-bar"><div class="hp-fill" id="ally-hp"></div></div>
+              <div class="hud-bottom">
+                <span class="hp-text mono" id="ally-hp-text"></span>
+                <span class="boost-chips" id="ally-boosts"></span>
+              </div>
+              <div class="hazard-chips" id="ally-hazards"></div>
+            </div>
+            <div class="sprite-anchor">
+              <img class="sprite" id="ally-sprite" alt="" draggable="false">
+              <div class="platform"></div>
+              <div class="fx-layer" id="ally-fx"></div>
+            </div>
+            <div class="ball-row" id="ally-balls"></div>
+          </div>
+
+          <div class="turn-badge mono" id="turn-badge" hidden>Turn 1</div>
+          <div class="announcer" id="announcer"></div>
+          <div class="result-overlay" id="result-overlay" hidden>
+            <div class="result-card">
+              <h2 id="result-title">Victory</h2>
+              <p id="result-sub"></p>
+              <div class="result-actions">
+                <button class="btn btn-primary" id="btn-rematch">Rematch</button>
+                <button class="btn btn-ghost" id="btn-back-lobby">Back to lobby</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="battle-controls" id="battle-controls">
+          <div class="controls-msg" id="controls-msg">Waiting for battle…</div>
+          <div class="gimmick-row" id="gimmick-row"></div>
+          <div class="move-grid" id="move-grid"></div>
+          <div class="switch-row" id="switch-row"></div>
+          <div class="controls-footer">
+            <span class="timer mono" id="turn-timer" hidden></span>
+            <button class="btn btn-ghost btn-sm" id="btn-show-switch">Switch</button>
+            <button class="btn btn-danger-ghost btn-sm" id="btn-forfeit">Forfeit</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="battle-side">
+        <div class="log-panel">
+          <h2 class="panel-title">Battle log</h2>
+          <div class="log-scroll" id="log-scroll"></div>
+        </div>
+        <div class="chat-panel">
+          <div class="chat-scroll" id="chat-scroll"></div>
+          <form class="chat-form" id="chat-form">
+            <input class="input" id="chat-input" placeholder="Say something…" maxlength="200" autocomplete="off">
+            <button class="btn btn-primary btn-sm" type="submit">Send</button>
+          </form>
+        </div>
+      </aside>
+    </div>
+  </section>
+</main>
+
+<!-- modals -->
+<div class="modal-backdrop" id="modal-backdrop" hidden>
+  <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
+</div>
+<div class="toast-stack" id="toast-stack"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/util.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/teambuilder.js"></script>
+<script src="js/battle.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

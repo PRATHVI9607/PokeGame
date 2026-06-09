@@ -1,0 +1,22 @@
+{
+  "name": "pokearena",
+  "version": "1.0.0",
+  "description": "Pokemon battle simulator with a custom engine",
+  "main": "server/index.js",
+  "scripts": {
+    "test": "node scripts/selftest.js 15",
+    "start": "node server/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@pkmn/dex": "^0.10.10",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}
