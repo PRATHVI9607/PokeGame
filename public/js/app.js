@@ -32,7 +32,12 @@
     const input = el('input', { class: 'input', placeholder: 'Trainer name', value: myName, maxlength: 18, style: 'width:100%' });
     const join = () => {
       const name = input.value.trim();
-      if (!name) return;
+      if (!name) {
+        input.style.borderColor = 'var(--danger)';
+        input.placeholder = 'Please type a name first';
+        input.focus();
+        return;
+      }
       myName = name;
       localStorage.setItem('pa_name', name);
       socket.emit('lobby:join', { name });
