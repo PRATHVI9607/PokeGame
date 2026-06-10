@@ -1,5 +1,6 @@
 // Battle scene: renders the engine's line protocol with sequenced animations,
-// sound and the move/switch/gimmick control panel.
+// sound, shiny support and the move/switch/gimmick/target control panel.
+// Handles singles and doubles (slots a/b per side).
 'use strict';
 
 const BattleUI = (() => {
@@ -22,30 +23,31 @@ const BattleUI = (() => {
 
   function freshState() {
     return {
-      roomId: null, mySide: 0, players: [],
+      roomId: null, mySide: 0, players: [], gameType: 'singles', numActives: 1,
       sides: [
-        { active: null, balls: 6, fainted: 0, hazards: {}, screens: {} },
-        { active: null, balls: 6, fainted: 0, hazards: {}, screens: {} },
+        { actives: [null, null], balls: 6, fainted: 0, hazards: {}, screens: {} },
+        { actives: [null, null], balls: 6, fainted: 0, hazards: {}, screens: {} },
       ],
       weather: '', terrain: '', trickRoom: false,
-      gimmick: null, // selected toggle
-      showSwitch: false,
       over: false,
       turn: 0,
+      // choice-building state
+      building: null, // { slot, actions: [], gimmickUsed, pendingMove: null (awaiting target) }
+      showSwitch: false,
     };
   }
 
   const zoneOf = (sideIdx) => (sideIdx === state.mySide ? 'ally' : 'foe');
-  const elFor = (sideIdx, suffix) => $(`#${zoneOf(sideIdx)}-${suffix}`);
+  const elFor = (sideIdx, slot, suffix) => $(`#${zoneOf(sideIdx)}-${slot}-${suffix}`);
+  const ballsEl = (sideIdx) => $(`#${zoneOf(sideIdx)}-balls`);
 
   function parseRef(ref) {
-    // "p1a: Garchomp"
-    const m = String(ref).match(/^p(\d)a?:?\s*(.*)$/);
+    // "p1a: Garchomp" / "p2b: Pelipper"
+    const m = String(ref).match(/^p(\d)([ab])?:?\s*(.*)$/);
     if (!m) return null;
-    return { side: +m[1] - 1, name: m[2] };
+    return { side: +m[1] - 1, slot: m[2] === 'b' ? 1 : 0, name: m[3] };
   }
   function parseHp(str) {
-    // "57/100 brn" | "0 fnt"
     if (!str) return { pct: 100, status: '' };
     if (str.includes('fnt')) return { pct: 0, status: 'fnt' };
     const m = str.match(/^(\d+)\/(\d+)\s*(\w+)?/);
@@ -53,16 +55,17 @@ const BattleUI = (() => {
     return { pct: Math.round(+m[1] / +m[2] * 100), status: m[3] || '' };
   }
   function parseDetails(details) {
-    // "Garchomp, L85, F, shiny, tera:Fire"
     const parts = details.split(',').map(s => s.trim());
     const species = parts[0];
-    let level = 100, tera = null;
+    let level = 100, tera = null, shiny = false;
     for (const p of parts.slice(1)) {
       if (p.startsWith('L')) level = +p.slice(1) || 100;
       if (p.startsWith('tera:')) tera = p.slice(5);
+      if (p === 'shiny') shiny = true;
     }
-    return { species, level, tera };
+    return { species, level, tera, shiny };
   }
+  function activeAt(sideIdx, slot) { return state.sides[sideIdx].actives[slot]; }
 
   // ---------- log + chat panels ----------
   function logLine(text, cls = 'l-minor') {
@@ -73,9 +76,7 @@ const BattleUI = (() => {
   function chatLine(from, msg, system = false) {
     const scroll = $('#chat-scroll');
     const line = el('div', { class: `chat-line${system ? ' system' : ''}` });
-    if (!system) {
-      line.appendChild(el('span', { class: 'c-from', text: from + ': ' }));
-    }
+    if (!system) line.appendChild(el('span', { class: 'c-from', text: from + ': ' }));
     line.appendChild(document.createTextNode(msg));
     scroll.appendChild(line);
     scroll.scrollTop = scroll.scrollHeight;
@@ -92,9 +93,9 @@ const BattleUI = (() => {
   // ---------- visual helpers ----------
   const wait = (ms) => new Promise(r => setTimeout(r, prefersReducedMotion ? Math.min(ms, 60) : ms));
 
-  function animateSprite(sideIdx, cls, dur = 600) {
-    const sprite = elFor(sideIdx, 'sprite');
-    if (prefersReducedMotion) return;
+  function animateSprite(sideIdx, slot, cls, dur = 600) {
+    const sprite = elFor(sideIdx, slot, 'sprite');
+    if (!sprite || prefersReducedMotion) return;
     sprite.classList.remove(cls);
     void sprite.offsetWidth;
     sprite.classList.add(cls);
@@ -110,11 +111,14 @@ const BattleUI = (() => {
     setTimeout(() => stage.classList.remove('shake'), 500);
   }
 
-  function fireProjectile(fromSide, type) {
+  function fireProjectile(fromSide, fromSlot, toSide, toSlot, type) {
     if (prefersReducedMotion) return;
     const stage = $('#battle-stage');
-    const fromAnchor = elFor(fromSide, 'sprite').getBoundingClientRect();
-    const toAnchor = elFor(1 - fromSide, 'sprite').getBoundingClientRect();
+    const fromEl = elFor(fromSide, fromSlot, 'sprite');
+    const toEl = elFor(toSide, toSlot, 'sprite');
+    if (!fromEl || !toEl) return;
+    const fromAnchor = fromEl.getBoundingClientRect();
+    const toAnchor = toEl.getBoundingClientRect();
     const stageRect = stage.getBoundingClientRect();
     const p = el('div', { class: 'projectile' });
     p.style.color = TYPE_COLORS[type] || '#fff';
@@ -130,41 +134,59 @@ const BattleUI = (() => {
     setTimeout(() => p.remove(), 600);
   }
 
-  function impactBurst(sideIdx, type) {
+  function impactBurst(sideIdx, slot, type) {
     if (prefersReducedMotion) return;
-    const fx = elFor(sideIdx, 'fx');
+    const fx = elFor(sideIdx, slot, 'fx');
+    if (!fx) return;
     const b = el('div', { class: 'impact-burst' });
     b.style.color = TYPE_COLORS[type] || '#fff';
     fx.appendChild(b);
     setTimeout(() => b.remove(), 500);
   }
 
-  function boostFloat(sideIdx, text, positive) {
+  function sparkle(sideIdx, slot) {
     if (prefersReducedMotion) return;
-    const fx = elFor(sideIdx, 'fx');
+    const fx = elFor(sideIdx, slot, 'fx');
+    if (!fx) return;
+    for (let i = 0; i < 6; i++) {
+      const s = el('div', { class: 'shiny-sparkle' });
+      s.style.left = (20 + Math.random() * 60) + '%';
+      s.style.top = (15 + Math.random() * 55) + '%';
+      s.style.animationDelay = (i * 0.09) + 's';
+      fx.appendChild(s);
+      setTimeout(() => s.remove(), 1300);
+    }
+  }
+
+  function boostFloat(sideIdx, slot, text, positive) {
+    if (prefersReducedMotion) return;
+    const fx = elFor(sideIdx, slot, 'fx');
+    if (!fx) return;
     const f = el('div', { class: 'boost-float', text });
     f.style.color = positive ? 'var(--accent)' : 'var(--danger)';
     fx.appendChild(f);
     setTimeout(() => f.remove(), 1100);
   }
 
-  function setHp(sideIdx, pct, status) {
-    const side = state.sides[sideIdx];
-    if (!side.active) return;
-    side.active.hp = pct;
-    if (status !== undefined && status !== 'fnt') side.active.status = status;
-    const fill = elFor(sideIdx, 'hp');
+  function setHp(sideIdx, slot, pct, status) {
+    const poke = activeAt(sideIdx, slot);
+    if (!poke) return;
+    poke.hp = pct;
+    if (status !== undefined && status !== 'fnt') poke.status = status;
+    const fill = elFor(sideIdx, slot, 'hp');
+    if (!fill) return;
     fill.style.width = Math.max(0, pct) + '%';
     fill.classList.toggle('low', pct <= 25);
     fill.classList.toggle('mid', pct > 25 && pct <= 55);
-    elFor(sideIdx, 'hp-text').textContent = Math.max(0, pct) + '%';
-    renderStatusChip(sideIdx);
+    elFor(sideIdx, slot, 'hp-text').textContent = Math.max(0, pct) + '%';
+    renderStatusChip(sideIdx, slot);
   }
 
-  function renderStatusChip(sideIdx) {
-    const side = state.sides[sideIdx];
-    const chip = elFor(sideIdx, 'status');
-    const st = side.active && side.active.status;
+  function renderStatusChip(sideIdx, slot) {
+    const poke = activeAt(sideIdx, slot);
+    const chip = elFor(sideIdx, slot, 'status');
+    if (!chip) return;
+    const st = poke && poke.status;
     if (st && STATUS_NAMES[st]) {
       chip.hidden = false;
       chip.textContent = STATUS_NAMES[st];
@@ -172,12 +194,13 @@ const BattleUI = (() => {
     } else chip.hidden = true;
   }
 
-  function renderBoosts(sideIdx) {
-    const side = state.sides[sideIdx];
-    const wrap = elFor(sideIdx, 'boosts');
+  function renderBoosts(sideIdx, slot) {
+    const poke = activeAt(sideIdx, slot);
+    const wrap = elFor(sideIdx, slot, 'boosts');
+    if (!wrap) return;
     wrap.innerHTML = '';
-    if (!side.active) return;
-    for (const [stat, n] of Object.entries(side.active.boosts || {})) {
+    if (!poke) return;
+    for (const [stat, n] of Object.entries(poke.boosts || {})) {
       if (!n) continue;
       wrap.appendChild(el('span', {
         class: `boost-chip${n < 0 ? ' neg' : ''}`,
@@ -188,7 +211,9 @@ const BattleUI = (() => {
 
   function renderHazards(sideIdx) {
     const side = state.sides[sideIdx];
-    const wrap = elFor(sideIdx, 'hazards');
+    // hazard chips live on slot 0's HUD only
+    const wrap = elFor(sideIdx, 0, 'hazards');
+    if (!wrap) return;
     wrap.innerHTML = '';
     for (const [id, val] of Object.entries(side.hazards)) {
       if (!val) continue;
@@ -202,7 +227,8 @@ const BattleUI = (() => {
 
   function renderBalls(sideIdx) {
     const side = state.sides[sideIdx];
-    const wrap = elFor(sideIdx, 'balls');
+    const wrap = ballsEl(sideIdx);
+    if (!wrap) return;
     wrap.innerHTML = '';
     for (let i = 0; i < side.balls; i++) {
       wrap.appendChild(el('span', { class: `ball${i < side.fainted ? ' fainted' : ''}` }));
@@ -220,16 +246,20 @@ const BattleUI = (() => {
     layer.className = 'weather-layer' + (state.weather ? ` on ${state.weather}` : '');
   }
 
-  function setSprite(sideIdx, species, { tera = false, dmax = false } = {}) {
-    const sprite = elFor(sideIdx, 'sprite');
+  function setSprite(sideIdx, slot, species, { tera = false, dmax = false, shiny = false } = {}) {
+    const sprite = elFor(sideIdx, slot, 'sprite');
+    if (!sprite) return;
     const back = sideIdx === state.mySide;
     sprite.classList.remove('hidden', 'anim-faint', 'dynamaxed', 'terastallized');
     sprite.onerror = () => {
-      // animated sprite missing: fall back to static gen5
-      sprite.onerror = () => { sprite.onerror = null; sprite.src = iconUrl(species); };
-      sprite.src = spriteUrl(species, { back, anim: false });
+      // animated sprite missing: static, then non-shiny, then icon
+      sprite.onerror = () => {
+        sprite.onerror = () => { sprite.onerror = null; sprite.src = iconUrl(species); };
+        sprite.src = spriteUrl(species, { back, anim: false, shiny: false });
+      };
+      sprite.src = spriteUrl(species, { back, anim: false, shiny });
     };
-    sprite.src = spriteUrl(species, { back, anim: true });
+    sprite.src = spriteUrl(species, { back, anim: true, shiny });
     if (dmax) sprite.classList.add('dynamaxed');
     if (tera) sprite.classList.add('terastallized');
   }
@@ -241,8 +271,14 @@ const BattleUI = (() => {
     const cmd = parts[0];
 
     switch (cmd) {
-      case 'player': case 'teamsize': case 'gametype': case 'start':
+      case 'player': case 'teamsize': case 'start':
         return;
+      case 'gametype': {
+        state.gameType = parts[1] === 'doubles' ? 'doubles' : 'singles';
+        state.numActives = state.gameType === 'doubles' ? 2 : 1;
+        applyGameTypeLayout();
+        return;
+      }
 
       case 'turn': {
         state.turn = +parts[1];
@@ -257,25 +293,24 @@ const BattleUI = (() => {
         const ref = parseRef(parts[1]);
         const det = parseDetails(parts[2]);
         const hp = parseHp(parts[3]);
-        const side = state.sides[ref.side];
-        const wasActive = side.active && !side.active.faintedOut;
-        side.active = {
+        state.sides[ref.side].actives[ref.slot] = {
           name: ref.name, species: det.species, level: det.level,
           hp: hp.pct, status: hp.status === 'fnt' ? '' : hp.status,
-          boosts: {}, tera: !!det.tera, dmax: false,
+          boosts: {}, tera: !!det.tera, dmax: false, shiny: det.shiny,
         };
-        elFor(ref.side, 'hud').hidden = false;
-        elFor(ref.side, 'name').textContent = ref.name;
-        elFor(ref.side, 'level').textContent = 'Lv ' + det.level;
-        setSprite(ref.side, det.species, { tera: !!det.tera });
-        animateSprite(ref.side, 'anim-enter', 550);
-        setHp(ref.side, hp.pct, hp.status);
-        renderBoosts(ref.side);
+        elFor(ref.side, ref.slot, 'hud').hidden = false;
+        elFor(ref.side, ref.slot, 'name').textContent = ref.name;
+        elFor(ref.side, ref.slot, 'level').textContent = 'Lv ' + det.level;
+        setSprite(ref.side, ref.slot, det.species, { tera: !!det.tera, shiny: det.shiny });
+        animateSprite(ref.side, ref.slot, 'anim-enter', 550);
+        if (det.shiny) sparkle(ref.side, ref.slot);
+        setHp(ref.side, ref.slot, hp.pct, hp.status);
+        renderBoosts(ref.side, ref.slot);
         renderHazards(ref.side);
         renderBalls(ref.side);
         AudioMan.cry(det.species);
-        logLine(`${ownerName(ref.side)} sent out ${ref.name}!`, 'l-major');
-        if (wasActive || state.turn > 0) {
+        logLine(`${ownerName(ref.side)} sent out ${ref.name}!${det.shiny ? ' (shiny!)' : ''}`, 'l-major');
+        if (state.turn > 0) {
           announce(ref.side === state.mySide ? `Go, ${ref.name}!` : `${ownerName(ref.side)} sent out ${ref.name}!`, 1100);
         }
         await wait(620);
@@ -284,16 +319,21 @@ const BattleUI = (() => {
 
       case 'move': {
         const ref = parseRef(parts[1]);
+        const target = parts[3] ? parseRef(parts[3]) : null;
         const moveName = parts[2];
         const type = parts[4] || 'Normal';
         const cat = parts[5] || 'Physical';
         logLine(`${ref.name} used ${moveName}!`, 'l-major');
         announce(`${ref.name} used ${moveName}!`);
-        if (cat === 'Physical') animateSprite(ref.side, ref.side === state.mySide ? 'anim-lunge-ally' : 'anim-lunge-foe', 520);
-        else if (cat === 'Special') { animateSprite(ref.side, 'anim-special', 560); fireProjectile(ref.side, type); }
-        else animateSprite(ref.side, 'anim-status-move', 560);
+        if (cat === 'Physical') {
+          animateSprite(ref.side, ref.slot, ref.side === state.mySide ? 'anim-lunge-ally' : 'anim-lunge-foe', 520);
+        } else if (cat === 'Special') {
+          animateSprite(ref.side, ref.slot, 'anim-special', 560);
+          if (target) fireProjectile(ref.side, ref.slot, target.side, target.slot, type);
+        } else {
+          animateSprite(ref.side, ref.slot, 'anim-status-move', 560);
+        }
         state.lastMoveType = type;
-        state.lastMoveCat = cat;
         await wait(prefersReducedMotion ? 80 : 480);
         return;
       }
@@ -303,16 +343,17 @@ const BattleUI = (() => {
         const hp = parseHp(parts[2]);
         const from = (parts[3] || '').replace('[from] ', '');
         const silent = (parts[3] || '').includes('[silent]');
-        const prev = state.sides[ref.side].active ? state.sides[ref.side].active.hp : 100;
-        setHp(ref.side, hp.pct, hp.status);
+        const poke = activeAt(ref.side, ref.slot);
+        const prev = poke ? poke.hp : 100;
+        setHp(ref.side, ref.slot, hp.pct, hp.status);
         if (silent) return;
         if (from && !from.includes('move:')) {
           logLine(`${ref.name} was hurt by ${prettyEffect(from)}. (${Math.max(0, prev - hp.pct)}%)`);
-          animateSprite(ref.side, 'anim-hit', 460);
+          animateSprite(ref.side, ref.slot, 'anim-hit', 460);
           await wait(380);
         } else {
-          impactBurst(ref.side, state.lastMoveType);
-          animateSprite(ref.side, 'anim-hit', 460);
+          impactBurst(ref.side, ref.slot, state.lastMoveType);
+          animateSprite(ref.side, ref.slot, 'anim-hit', 460);
           AudioMan.play('hit');
           logLine(`${ref.name} lost ${Math.max(0, prev - hp.pct)}% of its health.`);
           await wait(500);
@@ -324,9 +365,9 @@ const BattleUI = (() => {
         const ref = parseRef(parts[1]);
         const hp = parseHp(parts[2]);
         const silent = (parts[3] || '').includes('[silent]');
-        setHp(ref.side, hp.pct, hp.status);
+        setHp(ref.side, ref.slot, hp.pct, hp.status);
         if (silent) return;
-        animateSprite(ref.side, 'anim-heal', 750);
+        animateSprite(ref.side, ref.slot, 'anim-heal', 750);
         AudioMan.play('heal');
         const from = (parts[3] || '').replace('[from] ', '');
         logLine(`${ref.name} restored health${from ? ' with ' + prettyEffect(from) : ''}.`, 'l-good');
@@ -337,7 +378,7 @@ const BattleUI = (() => {
       case '-sethp': {
         const ref = parseRef(parts[1]);
         const hp = parseHp(parts[2]);
-        setHp(ref.side, hp.pct, hp.status);
+        setHp(ref.side, ref.slot, hp.pct, hp.status);
         await wait(250);
         return;
       }
@@ -390,24 +431,25 @@ const BattleUI = (() => {
         const ref = parseRef(parts[1]);
         const side = state.sides[ref.side];
         side.fainted = Math.min(side.balls, side.fainted + 1);
-        if (side.active) { side.active.hp = 0; side.active.faintedOut = true; }
-        setHp(ref.side, 0, 'fnt');
-        animateSprite(ref.side, 'anim-faint', 850);
+        const poke = activeAt(ref.side, ref.slot);
+        if (poke) { poke.hp = 0; poke.faintedOut = true; }
+        setHp(ref.side, ref.slot, 0, 'fnt');
+        animateSprite(ref.side, ref.slot, 'anim-faint', 850);
         AudioMan.play('faint');
         logLine(`${ref.name} fainted!`, 'l-bad');
         announce(`${ref.name} fainted!`);
         renderBalls(ref.side);
         await wait(900);
-        elFor(ref.side, 'sprite').classList.add('hidden');
-        elFor(ref.side, 'hud').hidden = true;
+        elFor(ref.side, ref.slot, 'sprite').classList.add('hidden');
+        elFor(ref.side, ref.slot, 'hud').hidden = true;
         return;
       }
 
       case '-status': {
         const ref = parseRef(parts[1]);
-        const side = state.sides[ref.side];
-        if (side.active) side.active.status = parts[2];
-        renderStatusChip(ref.side);
+        const poke = activeAt(ref.side, ref.slot);
+        if (poke) poke.status = parts[2];
+        renderStatusChip(ref.side, ref.slot);
         AudioMan.play('status');
         logLine(`${ref.name} ${statusText(parts[2])}`, 'l-bad');
         await wait(380);
@@ -415,9 +457,9 @@ const BattleUI = (() => {
       }
       case '-curestatus': {
         const ref = parseRef(parts[1]);
-        const side = state.sides[ref.side];
-        if (side.active) side.active.status = '';
-        renderStatusChip(ref.side);
+        const poke = activeAt(ref.side, ref.slot);
+        if (poke) poke.status = '';
+        renderStatusChip(ref.side, ref.slot);
         logLine(`${ref.name} recovered from its status.`, 'l-good');
         await wait(250);
         return;
@@ -427,21 +469,21 @@ const BattleUI = (() => {
         const ref = parseRef(parts[1]);
         const stat = parts[2];
         const n = +parts[3] * (cmd === '-unboost' ? -1 : 1);
-        const side = state.sides[ref.side];
-        if (side.active) {
-          side.active.boosts[stat] = (side.active.boosts[stat] || 0) + n;
-          renderBoosts(ref.side);
+        const poke = activeAt(ref.side, ref.slot);
+        if (poke) {
+          poke.boosts[stat] = (poke.boosts[stat] || 0) + n;
+          renderBoosts(ref.side, ref.slot);
         }
         AudioMan.play(n > 0 ? 'boost' : 'unboost');
-        boostFloat(ref.side, `${n > 0 ? '+' : ''}${n} ${STAT_LABELS[stat] || stat}`, n > 0);
+        boostFloat(ref.side, ref.slot, `${n > 0 ? '+' : ''}${n} ${STAT_LABELS[stat] || stat}`, n > 0);
         logLine(`${ref.name}'s ${STAT_LABELS[stat] || stat} ${n > 0 ? 'rose' : 'fell'}${Math.abs(n) > 1 ? ' sharply' : ''}!`);
         await wait(360);
         return;
       }
       case '-setboost': {
         const ref = parseRef(parts[1]);
-        const side = state.sides[ref.side];
-        if (side.active) { side.active.boosts[parts[2]] = +parts[3]; renderBoosts(ref.side); }
+        const poke = activeAt(ref.side, ref.slot);
+        if (poke) { poke.boosts[parts[2]] = +parts[3]; renderBoosts(ref.side, ref.slot); }
         AudioMan.play('boost');
         logLine(`${ref.name} maxed its ${STAT_LABELS[parts[2]] || parts[2]}!`, 'l-good');
         await wait(360);
@@ -449,7 +491,10 @@ const BattleUI = (() => {
       }
       case '-clearallboost': {
         for (const s of [0, 1]) {
-          if (state.sides[s].active) { state.sides[s].active.boosts = {}; renderBoosts(s); }
+          for (let slot = 0; slot < 2; slot++) {
+            const poke = activeAt(s, slot);
+            if (poke) { poke.boosts = {}; renderBoosts(s, slot); }
+          }
         }
         logLine('All stat changes were erased!');
         await wait(300);
@@ -457,7 +502,8 @@ const BattleUI = (() => {
       }
       case '-clearboost': {
         const ref = parseRef(parts[1]);
-        if (state.sides[ref.side].active) { state.sides[ref.side].active.boosts = {}; renderBoosts(ref.side); }
+        const poke = activeAt(ref.side, ref.slot);
+        if (poke) { poke.boosts = {}; renderBoosts(ref.side, ref.slot); }
         logLine(`${ref.name}'s stat changes were removed!`);
         return;
       }
@@ -529,12 +575,12 @@ const BattleUI = (() => {
 
       case '-terastallize': {
         const ref = parseRef(parts[1]);
-        const side = state.sides[ref.side];
-        if (side.active) side.active.tera = true;
+        const poke = activeAt(ref.side, ref.slot);
+        if (poke) poke.tera = true;
         AudioMan.play('gimmick');
-        animateSprite(ref.side, 'anim-gimmick', 1000);
+        animateSprite(ref.side, ref.slot, 'anim-gimmick', 1000);
         await wait(550);
-        elFor(ref.side, 'sprite').classList.add('terastallized');
+        elFor(ref.side, ref.slot, 'sprite').classList.add('terastallized');
         logLine(`${ref.name} terastallized into the ${parts[2]} type!`, 'l-good');
         announce(`${ref.name} terastallized into ${parts[2]}!`);
         await wait(500);
@@ -543,7 +589,7 @@ const BattleUI = (() => {
       case '-mega': {
         const ref = parseRef(parts[1]);
         AudioMan.play('gimmick');
-        animateSprite(ref.side, 'anim-gimmick', 1000);
+        animateSprite(ref.side, ref.slot, 'anim-gimmick', 1000);
         await wait(550);
         logLine(`${ref.name} mega evolved into ${parts[2]}!`, 'l-good');
         announce(`${ref.name} mega evolved!`);
@@ -553,13 +599,12 @@ const BattleUI = (() => {
       case 'detailschange': {
         const ref = parseRef(parts[1]);
         const det = parseDetails(parts[2]);
-        const side = state.sides[ref.side];
-        if (side.active) side.active.species = det.species;
-        setSprite(ref.side, det.species, {
-          tera: side.active && side.active.tera,
-          dmax: side.active && side.active.dmax,
+        const poke = activeAt(ref.side, ref.slot);
+        if (poke) poke.species = det.species;
+        setSprite(ref.side, ref.slot, det.species, {
+          tera: poke && poke.tera, dmax: poke && poke.dmax, shiny: poke && poke.shiny,
         });
-        animateSprite(ref.side, 'anim-enter', 500);
+        animateSprite(ref.side, ref.slot, 'anim-enter', 500);
         AudioMan.cry(det.species);
         await wait(400);
         return;
@@ -567,7 +612,7 @@ const BattleUI = (() => {
       case '-zpower': {
         const ref = parseRef(parts[1]);
         AudioMan.play('gimmick');
-        animateSprite(ref.side, 'anim-gimmick', 1000);
+        animateSprite(ref.side, ref.slot, 'anim-gimmick', 1000);
         logLine(`${ref.name} surrounded itself with its Z-Power!`, 'l-good');
         announce(`${ref.name} unleashes its Z-Power!`);
         await wait(700);
@@ -575,12 +620,12 @@ const BattleUI = (() => {
       }
       case '-dynamax': {
         const ref = parseRef(parts[1]);
-        const side = state.sides[ref.side];
-        if (side.active) side.active.dmax = true;
+        const poke = activeAt(ref.side, ref.slot);
+        if (poke) poke.dmax = true;
         AudioMan.play('gimmick');
-        animateSprite(ref.side, 'anim-gimmick', 1000);
+        animateSprite(ref.side, ref.slot, 'anim-gimmick', 1000);
         await wait(600);
-        elFor(ref.side, 'sprite').classList.add('dynamaxed');
+        elFor(ref.side, ref.slot, 'sprite').classList.add('dynamaxed');
         logLine(`${ref.name} dynamaxed!`, 'l-good');
         announce(`${ref.name} is dynamaxing!`);
         await wait(450);
@@ -588,9 +633,9 @@ const BattleUI = (() => {
       }
       case '-enddynamax': {
         const ref = parseRef(parts[1]);
-        const side = state.sides[ref.side];
-        if (side.active) side.active.dmax = false;
-        elFor(ref.side, 'sprite').classList.remove('dynamaxed');
+        const poke = activeAt(ref.side, ref.slot);
+        if (poke) poke.dmax = false;
+        elFor(ref.side, ref.slot, 'sprite').classList.remove('dynamaxed');
         logLine(`${ref.name} returned to normal size.`);
         await wait(300);
         return;
@@ -650,7 +695,8 @@ const BattleUI = (() => {
       }
       case '-singleturn': {
         const ref = parseRef(parts[1]);
-        logLine(`${ref.name} protected itself!`, 'l-major');
+        const what = (parts[2] || '').replace('move: ', '');
+        logLine(`${ref.name}: ${what}!`, 'l-major');
         await wait(280);
         return;
       }
@@ -677,6 +723,13 @@ const BattleUI = (() => {
       default:
         return;
     }
+  }
+
+  function applyGameTypeLayout() {
+    const doubles = state.gameType === 'doubles';
+    $('#foe-1-zone').hidden = !doubles;
+    $('#ally-1-zone').hidden = !doubles;
+    $('#battle-stage').classList.toggle('doubles', doubles);
   }
 
   function ownerName(sideIdx) {
@@ -713,12 +766,47 @@ const BattleUI = (() => {
     if (pendingRequest) renderControls();
   }
 
-  // ---------- controls ----------
+  // ---------- controls (choice building) ----------
   function renderControlsWaiting(msg) {
     $('#controls-msg').textContent = msg;
     $('#gimmick-row').innerHTML = '';
     $('#move-grid').innerHTML = '';
     $('#switch-row').innerHTML = '';
+  }
+
+  function slotsNeedingAction(req) {
+    if (req.forceSwitch) {
+      return req.forceSwitch.map((n, i) => n ? i : -1).filter(i => i >= 0);
+    }
+    return (req.actives || []).map((a, i) => a ? i : -1).filter(i => i >= 0);
+  }
+
+  function startBuilding() {
+    const req = pendingRequest;
+    state.building = {
+      order: slotsNeedingAction(req),
+      idx: 0,
+      actions: new Array(state.numActives).fill(null),
+      gimmickSel: null,    // gimmick toggled for the CURRENT slot
+      gimmickUsed: false,  // a gimmick is committed in a previous slot
+      usedSwitchTargets: new Set(),
+    };
+  }
+
+  function currentSlot() {
+    const b = state.building;
+    return b && b.idx < b.order.length ? b.order[b.idx] : -1;
+  }
+
+  function advanceOrSubmit() {
+    const b = state.building;
+    b.idx++;
+    if (b.idx >= b.order.length) {
+      submitChoice({ actions: b.actions });
+    } else {
+      state.showSwitch = false;
+      renderControls();
+    }
   }
 
   function renderControls() {
@@ -727,8 +815,14 @@ const BattleUI = (() => {
     if (processing) return;
     if (!pendingNeedsAction || req.wait) {
       renderControlsWaiting('Waiting for the opponent…');
+      stopTimer();
       return;
     }
+    if (!state.building) startBuilding();
+    const b = state.building;
+    const slot = currentSlot();
+    if (slot < 0) { renderControlsWaiting('Waiting…'); return; }
+
     const moveGrid = $('#move-grid');
     const switchRow = $('#switch-row');
     const gimmickRow = $('#gimmick-row');
@@ -737,44 +831,51 @@ const BattleUI = (() => {
     gimmickRow.innerHTML = '';
 
     const myTeam = req.side.pokemon;
+    const slotLabel = state.numActives > 1 ? ` (${(activeAt(state.mySide, slot) || {}).name || 'slot ' + (slot + 1)})` : '';
 
     if (req.forceSwitch) {
-      $('#controls-msg').textContent = 'Choose your next Pokemon.';
-      renderSwitchButtons(myTeam, true);
+      $('#controls-msg').textContent = `Choose a replacement${slotLabel}.`;
+      renderSwitchButtons(myTeam, slot, true);
+      maybeBackButton(gimmickRow);
       return;
     }
-    if (!req.active) { renderControlsWaiting('Waiting…'); return; }
 
-    $('#controls-msg').textContent = 'What will you do?';
+    const active = req.actives[slot];
+    if (!active) { advanceOrSubmit(); return; }
 
-    // gimmick toggles
-    const gimmicks = [];
-    if (req.active.canTera) gimmicks.push({ id: 'tera', label: `Terastallize · ${req.active.canTera}`, cls: 'g-tera' });
-    if (req.active.canMega) gimmicks.push({ id: 'mega', label: 'Mega Evolve', cls: 'g-mega' });
-    if (req.active.canZMove) gimmicks.push({ id: 'zmove', label: 'Z-Move', cls: 'g-zmove' });
-    if (req.active.canDynamax) gimmicks.push({ id: 'dynamax', label: 'Dynamax', cls: 'g-dynamax' });
-    for (const g of gimmicks) {
-      gimmickRow.appendChild(el('button', {
-        class: `gimmick-btn ${g.cls}${state.gimmick === g.id ? ' on' : ''}`,
-        text: g.label,
-        onclick: () => {
-          state.gimmick = state.gimmick === g.id ? null : g.id;
-          AudioMan.play('click');
-          renderControls();
-        },
-      }));
+    $('#controls-msg').textContent = `What will ${(activeAt(state.mySide, slot) || {}).name || 'your Pokemon'} do?`;
+
+    // gimmick toggles (one per side per turn)
+    if (!b.gimmickUsed) {
+      const gimmicks = [];
+      if (active.canTera) gimmicks.push({ id: 'tera', label: `Terastallize · ${active.canTera}`, cls: 'g-tera' });
+      if (active.canMega) gimmicks.push({ id: 'mega', label: 'Mega Evolve', cls: 'g-mega' });
+      if (active.canZMove) gimmicks.push({ id: 'zmove', label: 'Z-Move', cls: 'g-zmove' });
+      if (active.canDynamax) gimmicks.push({ id: 'dynamax', label: 'Dynamax', cls: 'g-dynamax' });
+      for (const g of gimmicks) {
+        gimmickRow.appendChild(el('button', {
+          class: `gimmick-btn ${g.cls}${b.gimmickSel === g.id ? ' on' : ''}`,
+          text: g.label,
+          onclick: () => {
+            b.gimmickSel = b.gimmickSel === g.id ? null : g.id;
+            AudioMan.play('click');
+            renderControls();
+          },
+        }));
+      }
     }
+    maybeBackButton(gimmickRow);
 
     // move buttons (transformed by active gimmick toggle)
-    const useMax = state.gimmick === 'dynamax' || req.active.dynamaxed;
-    const useZ = state.gimmick === 'zmove';
-    req.active.moves.forEach((m, i) => {
+    const useMax = b.gimmickSel === 'dynamax' || active.dynamaxed;
+    const useZ = b.gimmickSel === 'zmove';
+    active.moves.forEach((m, i) => {
       let label = m.name, type = m.type, bp = m.basePower, disabled = m.disabled;
-      if (useMax && req.active.maxMoves && req.active.maxMoves[i]) {
-        const mm = req.active.maxMoves[i];
+      if (useMax && active.maxMoves && active.maxMoves[i]) {
+        const mm = active.maxMoves[i];
         label = mm.name; type = mm.type; bp = mm.basePower;
       } else if (useZ) {
-        const z = req.active.canZMove && req.active.canZMove[i];
+        const z = active.canZMove && active.canZMove[i];
         if (z) { label = z.name; type = z.type; bp = z.basePower; }
         else disabled = true;
       }
@@ -783,9 +884,7 @@ const BattleUI = (() => {
         style: `--type-color:${TYPE_COLORS[type] || '#888'}`,
         onclick: () => {
           AudioMan.play('click');
-          const choice = { action: 'move', move: i };
-          if (state.gimmick) choice.gimmick = state.gimmick;
-          submitChoice(choice);
+          pickMove(i, m);
         },
       },
         el('span', { class: 'm-name', text: label }),
@@ -799,35 +898,111 @@ const BattleUI = (() => {
       moveGrid.appendChild(btn);
     });
 
-    if (state.showSwitch) renderSwitchButtons(myTeam, false);
+    if (state.showSwitch) renderSwitchButtons(myTeam, slot, false);
     startTimer(req.deadline);
   }
 
-  function renderSwitchButtons(myTeam, force) {
+  function maybeBackButton(row) {
+    const b = state.building;
+    if (b && b.idx > 0) {
+      row.appendChild(el('button', {
+        class: 'gimmick-btn', text: '< Back',
+        onclick: () => {
+          const prevSlot = b.order[b.idx - 1];
+          const prev = b.actions[prevSlot];
+          if (prev && prev.action === 'switch') b.usedSwitchTargets.delete(prev.target);
+          if (prev && prev.gimmick) b.gimmickUsed = false;
+          b.actions[prevSlot] = null;
+          b.idx--;
+          b.gimmickSel = null;
+          renderControls();
+        },
+      }));
+    }
+  }
+
+  function pickMove(moveIdx, moveData) {
+    const b = state.building;
+    const slot = currentSlot();
+    const a = { action: 'move', move: moveIdx };
+    if (b.gimmickSel) { a.gimmick = b.gimmickSel; b.gimmickUsed = true; b.gimmickSel = null; }
+
+    // doubles target selection for single-target moves
+    const foeSideIdx = 1 - state.mySide;
+    const foes = state.sides[foeSideIdx].actives
+      .map((p, s) => ({ p, s }))
+      .filter(x => x.p && x.p.hp > 0 && !x.p.faintedOut);
+    const needsTarget = state.numActives > 1 && foes.length > 1 &&
+      !['allAdjacentFoes', 'allAdjacent', 'self', 'allySide', 'allyTeam', 'all', 'adjacentAllyOrSelf'].includes(moveData.target);
+    if (needsTarget) {
+      b.actions[currentSlot()] = null;
+      renderTargetPicker(a, foes);
+      return;
+    }
+    if (foes.length) a.target = { side: foeSideIdx, slot: foes[0].s };
+    b.actions[slot] = a;
+    advanceOrSubmit();
+  }
+
+  function renderTargetPicker(action, foes) {
+    const moveGrid = $('#move-grid');
     const switchRow = $('#switch-row');
+    moveGrid.innerHTML = '';
+    switchRow.innerHTML = '';
+    $('#controls-msg').textContent = 'Choose a target.';
+    for (const { p, s } of foes) {
+      const img = el('img', { src: iconUrl(p.species), alt: '' });
+      img.onerror = () => { img.style.visibility = 'hidden'; };
+      moveGrid.appendChild(el('button', {
+        class: 'switch-btn target-btn',
+        onclick: () => {
+          AudioMan.play('click');
+          action.target = { side: 1 - state.mySide, slot: s };
+          state.building.actions[currentSlot()] = action;
+          advanceOrSubmit();
+        },
+      },
+        img,
+        el('span', {}, el('div', { text: p.name }), el('div', { class: 'sw-hp', text: p.hp + '% HP' })),
+      ));
+    }
+    moveGrid.appendChild(el('button', {
+      class: 'gimmick-btn', text: '< Back',
+      onclick: () => renderControls(),
+    }));
+  }
+
+  function renderSwitchButtons(myTeam, slot, force) {
+    const switchRow = $('#switch-row');
+    const b = state.building;
     switchRow.innerHTML = '';
     myTeam.forEach((p, i) => {
       if (p.active) return;
       const fainted = p.condition.includes('fnt');
+      const taken = b.usedSwitchTargets.has(i);
       const hpm = p.condition.match(/^(\d+)\/(\d+)/);
       const pct = fainted ? 0 : hpm ? Math.round(+hpm[1] / +hpm[2] * 100) : 100;
       const img = el('img', { src: iconUrl(p.species), alt: '' });
       img.onerror = () => { img.style.visibility = 'hidden'; };
       switchRow.appendChild(el('button', {
-        class: 'switch-btn', disabled: fainted,
+        class: 'switch-btn', disabled: fainted || taken,
         onclick: () => {
           AudioMan.play('click');
-          submitChoice({ action: 'switch', target: i });
+          b.usedSwitchTargets.add(i);
+          b.actions[slot] = { action: 'switch', target: i };
+          advanceOrSubmit();
         },
       },
         img,
-        el('span', {}, el('div', { text: p.species }), el('div', { class: 'sw-hp', text: fainted ? 'Fainted' : pct + '% HP' })),
+        el('span', {},
+          el('div', { text: p.species + (p.shiny ? ' ✦' : '') }),
+          el('div', { class: 'sw-hp', text: fainted ? 'Fainted' : taken ? 'Chosen' : pct + '% HP' })),
       ));
     });
   }
 
   function submitChoice(choice) {
-    state.gimmick = null;
+    state.building = null;
     state.showSwitch = false;
     pendingNeedsAction = false;
     renderControlsWaiting('Waiting for the opponent…');
@@ -842,7 +1017,7 @@ const BattleUI = (() => {
     timerEl.hidden = false;
     const tick = () => {
       const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
-      timerEl.textContent = `0:${String(left % 60).padStart(2, '0')}`.replace('0:', Math.floor(left / 60) + ':');
+      timerEl.textContent = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
       if (left <= 0) stopTimer();
     };
     tick();
@@ -854,11 +1029,13 @@ const BattleUI = (() => {
   }
 
   // ---------- public API ----------
-  function begin({ roomId, yourSide, players }, callbacks) {
+  function begin({ roomId, yourSide, players, gameType }, callbacks) {
     state = freshState();
     state.roomId = roomId;
     state.mySide = yourSide;
     state.players = players;
+    state.gameType = gameType === 'doubles' ? 'doubles' : 'singles';
+    state.numActives = state.gameType === 'doubles' ? 2 : 1;
     sendChoice = callbacks.sendChoice;
     onLeave = callbacks.onLeave;
     onRematch = callbacks.onRematch;
@@ -874,13 +1051,16 @@ const BattleUI = (() => {
     $('#field-banner').innerHTML = '';
     $('#weather-layer').className = 'weather-layer';
     for (const z of ['ally', 'foe']) {
-      $(`#${z}-hud`).hidden = true;
-      $(`#${z}-sprite`).classList.add('hidden');
+      for (const s of [0, 1]) {
+        $(`#${z}-${s}-hud`).hidden = true;
+        $(`#${z}-${s}-sprite`).classList.add('hidden');
+        $(`#${z}-${s}-fx`).innerHTML = '';
+      }
       $(`#${z}-balls`).innerHTML = '';
-      $(`#${z}-fx`).innerHTML = '';
     }
+    applyGameTypeLayout();
     renderControlsWaiting('Battle starting…');
-    logLine(`${players[0].name} vs ${players[1].name}`, 'l-turn');
+    logLine(`${players[0].name} vs ${players[1].name} · ${state.gameType}`, 'l-turn');
     AudioMan.startMusic();
   }
 
@@ -889,6 +1069,7 @@ const BattleUI = (() => {
   function onRequest(request, needsAction) {
     pendingRequest = request;
     pendingNeedsAction = needsAction;
+    state.building = null;
     if (!processing) renderControls();
   }
 

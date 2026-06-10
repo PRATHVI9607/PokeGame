@@ -8,13 +8,16 @@ const { Dex, toID, NATURES, TYPES } = require('../engine/data');
 const { generateRandomTeam } = require('../engine/random-teams');
 const { validateTeam } = require('./teams');
 const { BattleRoom } = require('./rooms');
+const db = require('./db');
+const auth = require('./auth');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-app.use(express.json({ limit: '256kb' }));
+app.use(express.json({ limit: '512kb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
+auth.mount(app);
 
 // ---------- dex REST API (data for the team builder) ----------
 let pokedexCache = null;
@@ -115,7 +118,7 @@ let nextRoomId = 1, nextChallengeId = 1;
 
 function lobbyState() {
   return {
-    users: [...users.entries()].map(([id, u]) => ({ id, name: u.name, status: u.status })),
+    users: [...users.entries()].map(([id, u]) => ({ id, name: u.name, status: u.status, registered: !!u.registered })),
   };
 }
 function broadcastLobby() { io.emit('lobby:state', lobbyState()); }
@@ -163,14 +166,17 @@ async function createRoom(playerDefs, opts) {
 }
 
 io.on('connection', (socket) => {
-  socket.on('lobby:join', ({ name } = {}) => {
-    const finalName = uniqueName(sanitizeName(name), socket.id);
-    users.set(socket.id, { name: finalName, status: 'lobby', roomId: null });
-    socket.emit('lobby:joined', { name: finalName, id: socket.id });
+  socket.on('lobby:join', ({ name, token } = {}) => {
+    // a valid account token wins over the free-form name and gets a badge
+    const account = token ? db.verifyToken(token) : null;
+    const base = account ? account.username : sanitizeName(name);
+    const finalName = uniqueName(account ? base : sanitizeName(base), socket.id);
+    users.set(socket.id, { name: finalName, status: 'lobby', roomId: null, registered: !!account });
+    socket.emit('lobby:joined', { name: finalName, id: socket.id, registered: !!account });
     broadcastLobby();
   });
 
-  socket.on('lobby:challenge', async ({ to, mode, team } = {}) => {
+  socket.on('lobby:challenge', async ({ to, mode, team, gameType } = {}) => {
     const from = users.get(socket.id);
     const target = users.get(to);
     if (!from || !target || to === socket.id) return;
@@ -178,9 +184,10 @@ io.on('connection', (socket) => {
       const v = await validateTeam(team);
       if (!v.ok) return socket.emit('lobby:error', { error: v.errors.join('; ') });
     }
+    const gt = gameType === 'doubles' ? 'doubles' : 'singles';
     const id = nextChallengeId++;
-    challenges.set(id, { from: socket.id, to, mode: mode === 'team' ? 'team' : 'random', team });
-    io.to(to).emit('lobby:challenged', { id, fromName: from.name, mode: mode === 'team' ? 'team' : 'random' });
+    challenges.set(id, { from: socket.id, to, mode: mode === 'team' ? 'team' : 'random', team, gameType: gt });
+    io.to(to).emit('lobby:challenged', { id, fromName: from.name, mode: mode === 'team' ? 'team' : 'random', gameType: gt });
     socket.emit('lobby:challenge-sent', { id, toName: target.name });
   });
 
@@ -200,7 +207,7 @@ io.on('connection', (socket) => {
     await createRoom([
       { kind: 'human', socketId: ch.from, name: challenger.name },
       { kind: 'human', socketId: socket.id, name: acceptor.name },
-    ], { mode: ch.mode, teams });
+    ], { mode: ch.mode, teams, gameType: ch.gameType });
   });
 
   socket.on('lobby:decline', ({ id } = {}) => {
@@ -211,7 +218,7 @@ io.on('connection', (socket) => {
     io.to(ch.from).emit('lobby:declined', { byName: decliner ? decliner.name : 'Opponent' });
   });
 
-  socket.on('queue:join', async ({ team } = {}) => {
+  socket.on('queue:join', async ({ team, gameType } = {}) => {
     const u = users.get(socket.id);
     if (!u || u.status !== 'lobby') return;
     if (queue.some(q => q.socketId === socket.id)) return;
@@ -220,19 +227,22 @@ io.on('connection', (socket) => {
       const v = await validateTeam(team);
       if (v.ok) validTeam = team;
     }
-    queue.push({ socketId: socket.id, team: validTeam });
+    const gt = gameType === 'doubles' ? 'doubles' : 'singles';
+    queue.push({ socketId: socket.id, team: validTeam, gameType: gt });
     u.status = 'queue';
     socket.emit('queue:waiting');
     broadcastLobby();
-    if (queue.length >= 2) {
-      const [a, b] = queue.splice(0, 2);
-      const ua = users.get(a.socketId), ub = users.get(b.socketId);
-      if (!ua) { queue.unshift(b); return; }
-      if (!ub) { queue.unshift(a); return; }
+    // pair two queued players wanting the same format
+    const matchIdx = queue.findIndex(q => q.socketId !== socket.id && q.gameType === gt);
+    if (matchIdx >= 0) {
+      const other = queue.splice(matchIdx, 1)[0];
+      queue = queue.filter(q => q.socketId !== socket.id);
+      const ua = users.get(other.socketId), ub = users.get(socket.id);
+      if (!ua || !ub) { if (ua) queue.unshift(other); return; }
       await createRoom([
-        { kind: 'human', socketId: a.socketId, name: ua.name },
-        { kind: 'human', socketId: b.socketId, name: ub.name },
-      ], { mode: 'random', teams: (a.team || b.team) ? [a.team, b.team] : null });
+        { kind: 'human', socketId: other.socketId, name: ua.name },
+        { kind: 'human', socketId: socket.id, name: ub.name },
+      ], { mode: 'random', teams: (other.team || validTeam) ? [other.team, validTeam] : null, gameType: gt });
     }
   });
 
@@ -243,7 +253,7 @@ io.on('connection', (socket) => {
     broadcastLobby();
   });
 
-  socket.on('bot:start', async ({ mode, team, apiKey } = {}) => {
+  socket.on('bot:start', async ({ mode, team, apiKey, gameType } = {}) => {
     const u = users.get(socket.id);
     if (!u || u.status === 'battle') return;
     let teams = null;
@@ -256,7 +266,7 @@ io.on('connection', (socket) => {
     await createRoom([
       { kind: 'human', socketId: socket.id, name: u.name },
       { kind: 'bot', name: key ? 'Gemini Ace' : 'Trainer AI', apiKey: key },
-    ], { mode: mode === 'team' ? 'team' : 'random', teams });
+    ], { mode: mode === 'team' ? 'team' : 'random', teams, gameType: gameType === 'doubles' ? 'doubles' : 'singles' });
   });
 
   socket.on('battle:choice', ({ roomId, choice } = {}) => {

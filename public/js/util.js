@@ -16,9 +16,10 @@ function spriteId(speciesName) {
     .replace(/[\s_]+/g, '')
     .replace(/[^a-z0-9-]/g, '');
 }
-function spriteUrl(speciesName, { back = false, anim = true } = {}) {
+function spriteUrl(speciesName, { back = false, anim = true, shiny = false } = {}) {
   const id = spriteId(speciesName);
-  const dir = anim ? (back ? 'ani-back' : 'ani') : (back ? 'gen5-back' : 'gen5');
+  let dir = anim ? (back ? 'ani-back' : 'ani') : (back ? 'gen5-back' : 'gen5');
+  if (shiny) dir += '-shiny';
   const ext = anim ? 'gif' : 'png';
   return `https://play.pokemonshowdown.com/sprites/${dir}/${id}.${ext}`;
 }

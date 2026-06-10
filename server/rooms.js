@@ -35,6 +35,7 @@ class BattleRoom {
     this.battle = new Battle(
       { name: this.players[0].name, team: teams[0] },
       { name: this.players[1].name, team: teams[1] },
+      { gameType: this.opts.gameType === 'doubles' ? 'doubles' : 'singles' },
     );
     this.over = false;
     this.rematchReady = [false, false];
@@ -47,6 +48,7 @@ class BattleRoom {
           sock.emit('battle:start', {
             roomId: this.id,
             yourSide: i,
+            gameType: this.battle ? this.battle.gameType : (this.opts.gameType || 'singles'),
             players: this.players.map(pl => ({ name: pl.name, bot: pl.kind === 'bot' })),
           });
         }
@@ -66,8 +68,8 @@ class BattleRoom {
     const b = this.battle;
     if (!b || b.ended) return false;
     const side = b.sides[i];
-    if (b.phase === 'replace') return side.needsSwitch && !side.choice;
-    return !side.choice;
+    if (b.phase === 'replace') return side.needsSwitch.some(Boolean) && !side.choices;
+    return !side.choices && side.aliveActives().length > 0;
   }
 
   flush() {

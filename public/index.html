@@ -46,7 +46,13 @@
           <div class="action-body">
             <h2>Random Battle</h2>
             <p>Queue up and get matched with a random team. Tera, Mega, Z-Moves and Dynamax all enabled.</p>
-            <button class="btn btn-primary" id="btn-queue">Find opponent</button>
+            <div class="bot-controls">
+              <select id="queue-format" class="input" style="flex:0 1 150px">
+                <option value="singles">Singles</option>
+                <option value="doubles">Doubles</option>
+              </select>
+              <button class="btn btn-primary" id="btn-queue">Find opponent</button>
+            </div>
             <span class="queue-status" id="queue-status" hidden>Searching for an opponent…
               <button class="btn btn-ghost btn-sm" id="btn-queue-cancel">Cancel</button></span>
           </div>
@@ -61,6 +67,10 @@
               <select id="bot-mode" class="input">
                 <option value="random">Random teams</option>
                 <option value="team">Use my team</option>
+              </select>
+              <select id="bot-format" class="input" style="flex:0 1 130px">
+                <option value="singles">Singles</option>
+                <option value="doubles">Doubles</option>
               </select>
               <button class="btn btn-primary" id="btn-bot">Start bot battle</button>
             </div>
@@ -119,51 +129,95 @@
     <div class="battle-grid">
       <div class="battle-stage-wrap">
         <div class="battle-stage" id="battle-stage">
+          <div class="scene-sky"></div>
+          <div class="scene-floor"></div>
+          <div class="scene-glow"></div>
           <div class="weather-layer" id="weather-layer"></div>
           <div class="field-banner" id="field-banner"></div>
 
-          <div class="combatant foe" id="foe-zone">
-            <div class="hud" id="foe-hud" hidden>
+          <!-- combatant slots are filled by battle.js (1 per side in singles, 2 in doubles) -->
+          <div class="combatant foe slot-0" id="foe-0-zone">
+            <div class="hud" id="foe-0-hud" hidden>
               <div class="hud-top">
-                <span class="hud-name" id="foe-name"></span>
-                <span class="hud-level" id="foe-level"></span>
-                <span class="status-chip" id="foe-status" hidden></span>
+                <span class="hud-name" id="foe-0-name"></span>
+                <span class="hud-level" id="foe-0-level"></span>
+                <span class="status-chip" id="foe-0-status" hidden></span>
               </div>
-              <div class="hp-bar"><div class="hp-fill" id="foe-hp"></div></div>
+              <div class="hp-bar"><div class="hp-fill" id="foe-0-hp"></div></div>
               <div class="hud-bottom">
-                <span class="hp-text mono" id="foe-hp-text"></span>
-                <span class="boost-chips" id="foe-boosts"></span>
+                <span class="hp-text mono" id="foe-0-hp-text"></span>
+                <span class="boost-chips" id="foe-0-boosts"></span>
               </div>
-              <div class="hazard-chips" id="foe-hazards"></div>
+              <div class="hazard-chips" id="foe-0-hazards"></div>
             </div>
             <div class="sprite-anchor">
-              <img class="sprite" id="foe-sprite" alt="" draggable="false">
+              <img class="sprite" id="foe-0-sprite" alt="" draggable="false">
               <div class="platform"></div>
-              <div class="fx-layer" id="foe-fx"></div>
+              <div class="fx-layer" id="foe-0-fx"></div>
             </div>
             <div class="ball-row" id="foe-balls"></div>
           </div>
-
-          <div class="combatant ally" id="ally-zone">
-            <div class="hud" id="ally-hud" hidden>
+          <div class="combatant foe slot-1" id="foe-1-zone" hidden>
+            <div class="hud" id="foe-1-hud" hidden>
               <div class="hud-top">
-                <span class="hud-name" id="ally-name"></span>
-                <span class="hud-level" id="ally-level"></span>
-                <span class="status-chip" id="ally-status" hidden></span>
+                <span class="hud-name" id="foe-1-name"></span>
+                <span class="hud-level" id="foe-1-level"></span>
+                <span class="status-chip" id="foe-1-status" hidden></span>
               </div>
-              <div class="hp-bar"><div class="hp-fill" id="ally-hp"></div></div>
+              <div class="hp-bar"><div class="hp-fill" id="foe-1-hp"></div></div>
               <div class="hud-bottom">
-                <span class="hp-text mono" id="ally-hp-text"></span>
-                <span class="boost-chips" id="ally-boosts"></span>
+                <span class="hp-text mono" id="foe-1-hp-text"></span>
+                <span class="boost-chips" id="foe-1-boosts"></span>
               </div>
-              <div class="hazard-chips" id="ally-hazards"></div>
+              <div class="hazard-chips" id="foe-1-hazards"></div>
             </div>
             <div class="sprite-anchor">
-              <img class="sprite" id="ally-sprite" alt="" draggable="false">
+              <img class="sprite" id="foe-1-sprite" alt="" draggable="false">
               <div class="platform"></div>
-              <div class="fx-layer" id="ally-fx"></div>
+              <div class="fx-layer" id="foe-1-fx"></div>
+            </div>
+          </div>
+
+          <div class="combatant ally slot-0" id="ally-0-zone">
+            <div class="hud" id="ally-0-hud" hidden>
+              <div class="hud-top">
+                <span class="hud-name" id="ally-0-name"></span>
+                <span class="hud-level" id="ally-0-level"></span>
+                <span class="status-chip" id="ally-0-status" hidden></span>
+              </div>
+              <div class="hp-bar"><div class="hp-fill" id="ally-0-hp"></div></div>
+              <div class="hud-bottom">
+                <span class="hp-text mono" id="ally-0-hp-text"></span>
+                <span class="boost-chips" id="ally-0-boosts"></span>
+              </div>
+              <div class="hazard-chips" id="ally-0-hazards"></div>
+            </div>
+            <div class="sprite-anchor">
+              <img class="sprite" id="ally-0-sprite" alt="" draggable="false">
+              <div class="platform"></div>
+              <div class="fx-layer" id="ally-0-fx"></div>
             </div>
             <div class="ball-row" id="ally-balls"></div>
+          </div>
+          <div class="combatant ally slot-1" id="ally-1-zone" hidden>
+            <div class="hud" id="ally-1-hud" hidden>
+              <div class="hud-top">
+                <span class="hud-name" id="ally-1-name"></span>
+                <span class="hud-level" id="ally-1-level"></span>
+                <span class="status-chip" id="ally-1-status" hidden></span>
+              </div>
+              <div class="hp-bar"><div class="hp-fill" id="ally-1-hp"></div></div>
+              <div class="hud-bottom">
+                <span class="hp-text mono" id="ally-1-hp-text"></span>
+                <span class="boost-chips" id="ally-1-boosts"></span>
+              </div>
+              <div class="hazard-chips" id="ally-1-hazards"></div>
+            </div>
+            <div class="sprite-anchor">
+              <img class="sprite" id="ally-1-sprite" alt="" draggable="false">
+              <div class="platform"></div>
+              <div class="fx-layer" id="ally-1-fx"></div>
+            </div>
           </div>
 
           <div class="turn-badge mono" id="turn-badge" hidden>Turn 1</div>

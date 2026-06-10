@@ -158,6 +158,11 @@ select.input { appearance: auto; }
   background: var(--bg-raise); border: 1px solid var(--line-soft);
 }
 .user-row .u-name { font-weight: 600; font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-row .u-badge {
+  font-size: 10px; font-weight: 800; color: var(--accent);
+  background: rgba(54,226,180,.12); border-radius: 4px; padding: 1px 5px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
 .user-row .u-status { font-size: 12px; color: var(--text-faint); }
 .user-row.in-battle .u-status { color: var(--warn); }
 .empty-lobby { color: var(--text-faint); font-size: 13.5px; padding: 8px 4px; }
@@ -247,12 +252,36 @@ select.input { appearance: auto; }
 .battle-stage {
   position: relative; border-radius: var(--radius);
   border: 1px solid var(--line-soft);
-  background:
-    radial-gradient(ellipse at 50% 120%, rgba(54,226,180,0.10), transparent 55%),
-    radial-gradient(ellipse at 80% 0%, rgba(70,110,180,0.14), transparent 50%),
-    linear-gradient(180deg, #121828 0%, #0d111c 70%, #0b0e16 100%);
-  height: clamp(340px, 46vw, 480px);
+  background: linear-gradient(180deg, #131a2e 0%, #0d111c 100%);
+  height: clamp(340px, 46vw, 500px);
   overflow: hidden;
+  perspective: 900px;
+}
+/* 3D scene layers: sky gradient, tilted arena floor, center glow */
+.scene-sky {
+  position: absolute; inset: 0 0 38% 0;
+  background:
+    radial-gradient(ellipse at 75% 10%, rgba(90,130,210,.22), transparent 55%),
+    radial-gradient(ellipse at 20% 30%, rgba(54,226,180,.07), transparent 50%),
+    linear-gradient(180deg, #18203a 0%, #121828 100%);
+}
+.scene-floor {
+  position: absolute; left: -30%; right: -30%; bottom: -42%; height: 95%;
+  transform: rotateX(64deg);
+  transform-origin: 50% 0%;
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(54,226,180,.16), transparent 55%),
+    repeating-linear-gradient(0deg, rgba(80,110,160,.12) 0 1px, transparent 1px 52px),
+    repeating-linear-gradient(90deg, rgba(80,110,160,.12) 0 1px, transparent 1px 52px),
+    radial-gradient(ellipse at 50% 30%, #1b2438 0%, #131a2a 55%, #0e1320 100%);
+  border-top: 1px solid rgba(120,160,220,.18);
+}
+.scene-glow {
+  position: absolute; left: 50%; top: 56%;
+  width: 46%; height: 16%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(ellipse, rgba(54,226,180,.13), transparent 70%);
+  filter: blur(6px);
 }
 .battle-stage.shake { animation: stage-shake .42s ease-in-out; }
 @keyframes stage-shake {
@@ -264,8 +293,17 @@ select.input { appearance: auto; }
 }
 
 .combatant { position: absolute; }
-.combatant.foe { top: 6%; right: 6%; display: flex; flex-direction: row-reverse; gap: 18px; align-items: flex-start; }
-.combatant.ally { bottom: 4%; left: 5%; display: flex; gap: 18px; align-items: flex-end; }
+.combatant.foe.slot-0 { top: 5%; right: 5%; display: flex; flex-direction: row-reverse; gap: 18px; align-items: flex-start; }
+.combatant.foe.slot-1 { top: 9%; right: 38%; display: flex; flex-direction: row-reverse; gap: 12px; align-items: flex-start; }
+.combatant.ally.slot-0 { bottom: 4%; left: 4%; display: flex; gap: 18px; align-items: flex-end; }
+.combatant.ally.slot-1 { bottom: 7%; left: 38%; display: flex; gap: 12px; align-items: flex-end; }
+/* doubles: tighten HUDs so four fit */
+.battle-stage.doubles .hud { min-width: 165px; padding: 8px 10px; }
+.battle-stage.doubles .sprite-anchor { width: 160px; height: 150px; }
+.battle-stage.doubles .combatant.foe .sprite-anchor { width: 135px; height: 120px; }
+/* foe slot-1 sits "behind": slightly smaller for depth */
+.combatant.foe.slot-1 .sprite { max-width: 125px; max-height: 112px; }
+.combatant.ally.slot-1 .sprite { max-width: 165px; max-height: 150px; }
 
 .sprite-anchor { position: relative; width: 200px; height: 190px; display: grid; place-items: end center; }
 .combatant.foe .sprite-anchor { width: 170px; height: 150px; }
@@ -368,6 +406,19 @@ select.input { appearance: auto; }
   0% { opacity: 0; transform: translate(-50%,-50%) scale(.2); }
   25% { opacity: 1; }
   100% { opacity: 0; transform: translate(-50%,-50%) scale(1.5); }
+}
+.shiny-sparkle {
+  position: absolute; width: 10px; height: 10px; z-index: 7; pointer-events: none;
+  background: radial-gradient(circle, #fff 0%, #ffe27a 45%, transparent 70%);
+  border-radius: 50%;
+  box-shadow: 0 0 10px 3px rgba(255,226,122,.8);
+  animation: sparkle-pop .9s ease-out forwards;
+  opacity: 0;
+}
+@keyframes sparkle-pop {
+  0% { opacity: 0; transform: scale(.2); }
+  30% { opacity: 1; transform: scale(1.25); }
+  100% { opacity: 0; transform: scale(.4) translateY(-14px); }
 }
 .boost-float {
   position: absolute; left: 50%; top: 36%; z-index: 7;

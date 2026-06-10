@@ -3,32 +3,34 @@
 
 // ---- switch-in effects (weather setters, Intimidate, etc.) ----
 function onSwitchInEffects(battle, poke) {
-  const foe = battle.foeActive(poke);
+  const foes = battle.foesOf(poke);
   switch (poke.ability) {
     case 'intimidate':
-      if (foe && !foe.fainted) {
-        battle.log(`|-ability|${battle.ref(poke)}|Intimidate`);
+      if (foes.length) battle.log(`|-ability|${battle.ref(poke)}|Intimidate`);
+      for (const foe of foes) {
         const blockers = ['clearbody', 'whitesmoke', 'fullmetalbody', 'hypercutter', 'innerfocus', 'oblivious', 'owntempo', 'scrappy', 'guarddog'];
         if (blockers.includes(foe.ability)) {
           battle.log(`|-fail|${battle.ref(foe)}`);
         } else {
           battle.boost(foe, { atk: -1 }, poke);
-          if (['defiant'].includes(foe.ability)) battle.boost(foe, { atk: 2 }, foe);
-          if (['competitive'].includes(foe.ability)) battle.boost(foe, { spa: 2 }, foe);
+          if (foe.ability === 'defiant') battle.boost(foe, { atk: 2 }, foe);
+          if (foe.ability === 'competitive') battle.boost(foe, { spa: 2 }, foe);
         }
       }
       break;
     case 'drought': battle.setWeather('sun', poke); break;
+    case 'orichalcumpulse': battle.setWeather('sun', poke); break;
     case 'drizzle': battle.setWeather('rain', poke); break;
     case 'sandstream': battle.setWeather('sand', poke); break;
     case 'snowwarning': battle.setWeather('snow', poke); break;
     case 'electricsurge': battle.setTerrain('electric', poke); break;
+    case 'hadronengine': battle.setTerrain('electric', poke); break;
     case 'grassysurge': battle.setTerrain('grassy', poke); break;
     case 'psychicsurge': battle.setTerrain('psychic', poke); break;
     case 'mistysurge': battle.setTerrain('misty', poke); break;
     case 'download':
-      if (foe && !foe.fainted) {
-        const def = foe.getStat('def'), spd = foe.getStat('spd');
+      if (foes[0]) {
+        const def = foes[0].getStat('def'), spd = foes[0].getStat('spd');
         battle.boost(poke, def < spd ? { atk: 1 } : { spa: 1 }, poke);
       }
       break;
@@ -54,7 +56,8 @@ function bestStat(poke) {
 // ---- stat modification (abilities + items + weather + status) ----
 function modifyStat(stat, value, poke, battle) {
   const a = poke.ability, it = poke.item;
-  const w = battle.weather, t = battle.terrain;
+  const w = battle.effWeather ? battle.effWeather() : battle.weather;
+  const t = battle.terrain;
   switch (stat) {
     case 'atk':
       if (a === 'hugepower' || a === 'purepower') value *= 2;
@@ -65,11 +68,17 @@ function modifyStat(stat, value, poke, battle) {
       if (poke.status === 'brn' && a !== 'guts') value *= 0.5;
       if (poke.volatiles.paradoxBoost === 'atk') value *= 1.3;
       if (a === 'flowergift' && w === 'sun') value *= 1.5;
+      if (a === 'toxicboost' && ['psn', 'tox'].includes(poke.status)) value *= 1.5;
+      if (a === 'orichalcumpulse' && w === 'sun') value *= 4 / 3;
+      if (a === 'defeatist' && poke.hp <= poke.maxhp / 2) value *= 0.5;
       break;
     case 'spa':
       if (it === 'choicespecs') value *= 1.5;
       if (a === 'solarpower' && w === 'sun') value *= 1.5;
       if (poke.volatiles.paradoxBoost === 'spa') value *= 1.3;
+      if (a === 'flareboost' && poke.status === 'brn') value *= 1.5;
+      if (a === 'hadronengine' && t === 'electric') value *= 4 / 3;
+      if (a === 'defeatist' && poke.hp <= poke.maxhp / 2) value *= 0.5;
       break;
     case 'def':
       if (it === 'eviolite' && poke.species.nfe) value *= 1.5;
@@ -121,6 +130,9 @@ function modifyBasePower(bp, move, attacker, defender, battle) {
   if (a === 'waterbubble' && move.type === 'Water') bp *= 2;
   if (a === 'rockypayload' && move.type === 'Rock') bp *= 1.5;
   if (a === 'punkrock' && move.flags.sound) bp *= 1.3;
+  if (a === 'sandforce' && (battle.effWeather ? battle.effWeather() : battle.weather) === 'sand' &&
+      ['Rock', 'Ground', 'Steel'].includes(move.type)) bp *= 1.3;
+  if (it === 'punchingglove' && move.flags.punch) bp *= 1.1;
   // pinch abilities
   if (attacker.hp <= attacker.maxhp / 3) {
     if (a === 'overgrow' && move.type === 'Grass') bp *= 1.5;
@@ -216,7 +228,7 @@ function statusBlocked(poke, status, battle, source) {
   };
   if (blockMap[status] && blockMap[status].includes(a)) return true;
   if (a === 'comatose' || a === 'purifyingsalt' || a === 'shieldsdown') return true;
-  if (a === 'leafguard' && battle.weather === 'sun') return true;
+  if (a === 'leafguard' && battle.effWeather() === 'sun') return true;
   if (a === 'flowerveil' && poke.hasType('Grass')) return true;
   return false;
 }
@@ -250,18 +262,18 @@ function residualEffects(battle, poke) {
     const healed = poke.heal(poke.maxhp / 8);
     if (healed > 0) battle.log(`|-heal|${battle.ref(poke)}|${battle.hpStr(poke)}|[from] ability: Poison Heal`);
   }
-  if (a === 'hydration' && battle.weather === 'rain' && poke.status) {
+  if (a === 'hydration' && battle.effWeather() === 'rain' && poke.status) {
     battle.cureStatus(poke, 'ability: Hydration');
   }
-  if (a === 'raindish' && battle.weather === 'rain') {
+  if (a === 'raindish' && battle.effWeather() === 'rain') {
     const healed = poke.heal(poke.maxhp / 16);
     if (healed > 0) battle.log(`|-heal|${battle.ref(poke)}|${battle.hpStr(poke)}|[from] ability: Rain Dish`);
   }
-  if (a === 'icebody' && battle.weather === 'snow') {
+  if (a === 'icebody' && battle.effWeather() === 'snow') {
     const healed = poke.heal(poke.maxhp / 16);
     if (healed > 0) battle.log(`|-heal|${battle.ref(poke)}|${battle.hpStr(poke)}|[from] ability: Ice Body`);
   }
-  if (a === 'solarpower' && battle.weather === 'sun' && poke.ability !== 'magicguard') {
+  if (a === 'solarpower' && battle.effWeather() === 'sun' && poke.ability !== 'magicguard') {
     battle.applyDamage(poke, poke.maxhp / 8, 'ability: Solar Power');
   }
 }
@@ -280,6 +292,11 @@ function contactEffects(battle, attacker, defender) {
     battle.trySetStatus(attacker, battle.sample(['psn', 'par', 'slp']), defender, 'ability: Effect Spore');
   }
   if ((a === 'gooey' || a === 'tanglinghair') && !attacker.fainted) battle.boost(attacker, { spe: -1 }, defender);
+  if (a === 'mummy' && !attacker.fainted &&
+      !['mummy', 'multitype', 'zenmode', 'stancechange', 'disguise'].includes(attacker.ability)) {
+    attacker.ability = 'mummy';
+    battle.log(`|-activate|${battle.ref(attacker)}|ability: Mummy`);
+  }
   if (defender.item === 'rockyhelmet' && !attacker.fainted) {
     battle.applyDamage(attacker, attacker.maxhp / 6, 'item: Rocky Helmet');
   }
@@ -316,6 +333,9 @@ function afterDamagedItem(battle, poke, move, eff) {
   if (poke.ability === 'berserk' && poke.hp < poke.maxhp / 2 && poke.hp + battle.lastDamageDealt >= poke.maxhp / 2) {
     battle.boost(poke, { spa: 1 }, poke);
   }
+  if (poke.ability === 'weakarmor' && move.category === 'Physical') {
+    battle.boost(poke, { def: -1, spe: 2 }, poke);
+  }
 }
 
 function checkBerry(battle, poke) {
@@ -337,6 +357,14 @@ function checkBerry(battle, poke) {
     poke.item = '';
     const healed = poke.heal(poke.maxhp / 3);
     if (healed) battle.log(`|-heal|${battle.ref(poke)}|${battle.hpStr(poke)}|[from] item: Berry`);
+  }
+  // pinch stat berries
+  const pinchBerries = { salacberry: { spe: 1 }, liechiberry: { atk: 1 }, petayaberry: { spa: 1 }, apicotberry: { spd: 1 }, ganlonberry: { def: 1 } };
+  if (pinchBerries[it] && poke.hp <= poke.maxhp * gluttony) {
+    const boost = pinchBerries[it];
+    poke.item = '';
+    battle.log(`|-enditem|${battle.ref(poke)}|Berry`);
+    battle.boost(poke, boost, poke);
   }
 }
 

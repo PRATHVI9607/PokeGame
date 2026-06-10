@@ -24,7 +24,11 @@ const Teambuilder = (() => {
     }
     currentTeamId = teams[0].id;
   }
-  function save() { localStorage.setItem(STORE_KEY, JSON.stringify(teams)); }
+  let syncHandler = null;
+  function save() {
+    localStorage.setItem(STORE_KEY, JSON.stringify(teams));
+    if (syncHandler) syncHandler();
+  }
   function team() { return teams.find(t => t.id === currentTeamId); }
 
   // ---------- data ----------
@@ -213,10 +217,14 @@ const Teambuilder = (() => {
     for (const ty of TYPES) teraSel.appendChild(el('option', { value: ty, text: ty, selected: ty === set.teraType }));
     teraSel.addEventListener('change', () => { set.teraType = teraSel.value; save(); });
 
-    const triple = el('div', { style: 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px' },
+    const shinyToggle = el('input', { type: 'checkbox', checked: !!set.shiny, style: 'accent-color:var(--accent);width:18px;height:18px;margin-top:10px' });
+    shinyToggle.addEventListener('change', () => { set.shiny = shinyToggle.checked; save(); renderSlots(); });
+
+    const triple = el('div', { style: 'display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px' },
       el('div', { class: 'field-block' }, el('label', { class: 'field-label', text: 'Nature' }), natureSel),
       el('div', { class: 'field-block' }, el('label', { class: 'field-label', text: 'Level' }), levelInput),
       el('div', { class: 'field-block' }, el('label', { class: 'field-label', text: 'Tera type' }), teraSel),
+      el('div', { class: 'field-block' }, el('label', { class: 'field-label', text: 'Shiny' }), shinyToggle),
     );
     colL.appendChild(triple);
 
@@ -310,6 +318,7 @@ const Teambuilder = (() => {
     out += '\n';
     if (set.ability) out += `Ability: ${set.ability}\n`;
     if (set.level && set.level !== 100) out += `Level: ${set.level}\n`;
+    if (set.shiny) out += `Shiny: Yes\n`;
     if (set.teraType) out += `Tera Type: ${set.teraType}\n`;
     const evParts = Object.entries(set.evs || {}).filter(([, v]) => v > 0)
       .map(([s, v]) => `${v} ${STAT_NAMES[s]}`);
@@ -356,6 +365,7 @@ const Teambuilder = (() => {
       for (const line of lines.slice(1)) {
         if (line.startsWith('Ability:')) set.ability = line.slice(8).trim();
         else if (line.startsWith('Level:')) set.level = +line.slice(6).trim() || 100;
+        else if (line.startsWith('Shiny:')) set.shiny = line.slice(6).trim().toLowerCase() === 'yes';
         else if (line.startsWith('Tera Type:')) set.teraType = line.slice(10).trim();
         else if (line.startsWith('EVs:')) Object.assign(set.evs, parseStatList(line.slice(4)));
         else if (line.startsWith('IVs:')) Object.assign(set.ivs, parseStatList(line.slice(4)));
@@ -443,6 +453,18 @@ const Teambuilder = (() => {
     });
   }
 
+  // cloud sync hooks (wired by app.js when logged in)
+  function setSyncHandler(fn) { syncHandler = fn; }
+  function hasSyncHandler() { return !!syncHandler; }
+  function replaceAll(newTeams) {
+    if (!Array.isArray(newTeams) || !newTeams.length) return;
+    teams = newTeams;
+    currentTeamId = teams[0].id;
+    currentSlot = -1;
+    localStorage.setItem(STORE_KEY, JSON.stringify(teams));
+    renderAll();
+  }
+
   async function init() {
     load();
     bindUI();
@@ -450,5 +472,5 @@ const Teambuilder = (() => {
     await renderAll();
   }
 
-  return { init, getCurrentTeamSets, getTeams, renderAll };
+  return { init, getCurrentTeamSets, getTeams, renderAll, setSyncHandler, hasSyncHandler, replaceAll };
 })();

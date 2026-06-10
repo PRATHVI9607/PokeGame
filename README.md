@@ -9,20 +9,29 @@ used only as a data source for base stats, move tables and learnsets.
 
 ## Features
 
-- **6v6 singles battles**: status, weather, terrain, hazards, screens, crits,
-  priority, multi-hit, recoil, drain, confusion, Protect, Substitute and more
+- **6v6 singles AND doubles battles**: status, weather, terrain, hazards, screens,
+  crits, priority, multi-hit, recoil, drain, confusion, Protect, Substitute,
+  spread moves with proper 0.75x penalty, target selection, Follow Me, Helping Hand
 - **All four gimmicks in every match**: Terastallization, Mega Evolution,
   Z-Moves and Dynamax (each usable once per side per battle)
+- **~90 abilities and ~50 items** implemented, including Disguise, Parental Bond,
+  Wonder Guard, Intimidate, weather/terrain setters, choice items, pinch berries
+- **Shiny Pokemon**: shiny toggle in the builder, shiny sprites + sparkle effect
+  in battle, rare shinies in random teams
+- **Accounts (optional)**: register/login (scrypt-hashed passwords, signed session
+  tokens, login rate limiting); your teams sync to the server. Guests just pick a name
 - **Team builder**: any species, moves validated against real learnsets, items,
-  abilities, natures, EV/IV editing with live stat preview, Tera type,
-  Showdown paste import/export, multiple saved teams (stored in your browser)
-- **Online lobby**: see who is online, challenge trainers with random or custom teams
-- **Random battle queue**: instant matchmaking with generated teams
+  abilities, natures, EV/IV editing with live stat preview, Tera type, shiny,
+  Showdown paste import/export, multiple saved teams
+- **Online lobby**: see who is online, challenge trainers (singles or doubles,
+  random or custom teams)
+- **Random battle queue**: per-format matchmaking with generated teams
 - **AI opponent**: Gemini-powered bot (paste your API key in the UI) with a
-  damage-maximizing heuristic fallback, plus in-battle banter
-- **Presentation**: animated battle scene (lunges, projectiles, hit shakes,
-  HP tweens, faints, gimmick transformations, weather overlays, screen shake),
-  Pokemon cries, synthesized SFX and looping battle music
+  damage-maximizing heuristic fallback, plays doubles too, banters in chat
+- **Presentation**: 3D-perspective arena with a depth-tilted floor, animated
+  battles (lunges, projectiles, hit shakes, HP tweens, faints, gimmick
+  transformations, weather overlays, screen shake), Pokemon cries, synthesized
+  SFX and looping battle music
 
 ## Quick start (local)
 
