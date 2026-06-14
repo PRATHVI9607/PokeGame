@@ -61,7 +61,7 @@
           <div class="action-art art-bot"></div>
           <div class="action-body">
             <h2>Battle the AI</h2>
-            <p>Fight a bot trainer. Paste a Gemini API key to face a smarter, chattier opponent.</p>
+            <p>Fight a bot trainer (not rigged — picks the highest-damage move per turn). Paste a Gemini API key to face a smarter, chattier opponent.</p>
             <div class="bot-controls">
               <input type="password" id="gemini-key" class="input" placeholder="Gemini API key (optional)" autocomplete="off">
               <select id="bot-mode" class="input">
@@ -82,6 +82,15 @@
             <h2>Challenge a Trainer</h2>
             <p>Pick someone from the lobby and battle with random teams or your own builds.</p>
             <p class="hint" id="challenge-hint">Select a trainer from the list to send a challenge.</p>
+          </div>
+        </div>
+        <div class="action-card" id="card-coop">
+          <div class="action-art art-coop"></div>
+          <div class="action-body">
+            <h2>Co-op Doubles</h2>
+            <p>Team up with a partner and take on two opponents — each human controls one Pokémon in the doubles battle.</p>
+            <p class="hint" id="coop-hint">Need 3 other online trainers in the lobby.</p>
+            <button class="btn btn-primary" id="btn-coop">Organize co-op</button>
           </div>
         </div>
       </div>
@@ -130,7 +139,12 @@
       <div class="battle-stage-wrap">
         <div class="battle-stage" id="battle-stage">
           <div class="scene-sky"></div>
+          <div class="scene-crowd"></div>
+          <div class="scene-arch"></div>
+          <div class="scene-light-l"></div>
+          <div class="scene-light-r"></div>
           <div class="scene-floor"></div>
+          <div class="scene-particles"></div>
           <div class="scene-glow"></div>
           <div class="weather-layer" id="weather-layer"></div>
           <div class="field-banner" id="field-banner"></div>

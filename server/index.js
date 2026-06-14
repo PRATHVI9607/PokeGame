@@ -112,9 +112,10 @@ app.post('/api/validateteam', async (req, res) => {
 // ---------- lobby / matchmaking ----------
 const users = new Map();        // socketId -> {name, status, roomId}
 const challenges = new Map();   // challengeId -> {from, to, mode, team}
+const coopInvites = new Map();  // coopId -> {initiatorId, partnerId, opp1Id, opp2Id, mode, accepted:Set, declined:bool}
 let queue = [];                 // [{socketId, team|null}]
 const rooms = new Map();        // roomId -> BattleRoom
-let nextRoomId = 1, nextChallengeId = 1;
+let nextRoomId = 1, nextChallengeId = 1, nextCoopId = 1;
 
 function lobbyState() {
   return {
@@ -297,6 +298,70 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ---------- co-op doubles -----------------------------------------------
+  socket.on('lobby:challenge-coop', ({ partnerId, opp1Id, opp2Id, mode } = {}) => {
+    const from = users.get(socket.id);
+    if (!from || from.status !== 'lobby') return;
+    const partner = users.get(partnerId);
+    const opp1 = users.get(opp1Id);
+    const opp2 = users.get(opp2Id);
+    if (!partner || !opp1 || !opp2) return socket.emit('lobby:error', { error: 'One or more trainers went offline.' });
+    if ([partnerId, opp1Id, opp2Id].some(id => !id || id === socket.id))
+      return socket.emit('lobby:error', { error: 'Invalid selection.' });
+    const unique = new Set([partnerId, opp1Id, opp2Id]);
+    if (unique.size < 3) return socket.emit('lobby:error', { error: 'Please pick 3 different trainers.' });
+    if ([partner, opp1, opp2].some(u => u.status !== 'lobby'))
+      return socket.emit('lobby:error', { error: 'One or more trainers is busy.' });
+
+    const id = nextCoopId++;
+    coopInvites.set(id, {
+      initiatorId: socket.id, partnerId, opp1Id, opp2Id,
+      mode: mode === 'team' ? 'team' : 'random',
+      accepted: new Set([socket.id]),
+      declined: false,
+    });
+    const invitePayload = (role) => ({ id, fromName: from.name, role, gameType: 'doubles' });
+    io.to(partnerId).emit('lobby:coop-challenged', invitePayload('partner'));
+    io.to(opp1Id).emit('lobby:coop-challenged', invitePayload('opponent'));
+    io.to(opp2Id).emit('lobby:coop-challenged', invitePayload('opponent'));
+    socket.emit('lobby:coop-invite-sent', { id, partnerName: partner.name, opp1Name: opp1.name, opp2Name: opp2.name });
+  });
+
+  socket.on('lobby:coop-accept', async ({ id } = {}) => {
+    const inv = coopInvites.get(id);
+    if (!inv || inv.declined) return;
+    const allIds = [inv.initiatorId, inv.partnerId, inv.opp1Id, inv.opp2Id];
+    if (!allIds.includes(socket.id)) return;
+    inv.accepted.add(socket.id);
+    if (inv.accepted.size < 4) return;
+
+    // All 4 accepted — start the room
+    coopInvites.delete(id);
+    const uList = allIds.map(sid => ({ user: users.get(sid), sid }));
+    if (uList.some(({ user }) => !user)) return;
+
+    await createRoom([
+      { kind: 'human', socketId: uList[0].sid, name: uList[0].user.name, coopSlot: 0 },
+      { kind: 'human', socketId: uList[1].sid, name: uList[1].user.name, coopSlot: 1 },
+      { kind: 'human', socketId: uList[2].sid, name: uList[2].user.name, coopSlot: 0 },
+      { kind: 'human', socketId: uList[3].sid, name: uList[3].user.name, coopSlot: 1 },
+    ], { mode: inv.mode, gameType: 'doubles', coopMode: true });
+  });
+
+  socket.on('lobby:coop-decline', ({ id } = {}) => {
+    const inv = coopInvites.get(id);
+    if (!inv) return;
+    inv.declined = true;
+    coopInvites.delete(id);
+    const decliner = users.get(socket.id);
+    const byName = decliner?.name || 'Someone';
+    const allIds = [inv.initiatorId, inv.partnerId, inv.opp1Id, inv.opp2Id];
+    for (const sid of allIds) {
+      if (sid !== socket.id) io.to(sid).emit('lobby:coop-cancelled', { byName });
+    }
+  });
+  // -------------------------------------------------------------------------
+
   socket.on('disconnect', () => {
     queue = queue.filter(q => q.socketId !== socket.id);
     const u = users.get(socket.id);
@@ -306,6 +371,17 @@ io.on('connection', (socket) => {
     // expire challenges involving this socket
     for (const [id, ch] of challenges) {
       if (ch.from === socket.id || ch.to === socket.id) challenges.delete(id);
+    }
+    // expire co-op invites involving this socket
+    for (const [id, inv] of coopInvites) {
+      const allIds = [inv.initiatorId, inv.partnerId, inv.opp1Id, inv.opp2Id];
+      if (allIds.includes(socket.id)) {
+        inv.declined = true;
+        coopInvites.delete(id);
+        for (const sid of allIds) {
+          if (sid !== socket.id) io.to(sid).emit('lobby:coop-cancelled', { byName: 'a disconnected trainer' });
+        }
+      }
     }
     users.delete(socket.id);
     broadcastLobby();

@@ -134,6 +134,7 @@ select.input { appearance: auto; }
 .art-random { background: radial-gradient(circle at 35% 35%, rgba(54,226,180,.5), transparent 60%), linear-gradient(160deg, #0f2c24, #101622); }
 .art-bot { background: radial-gradient(circle at 60% 30%, rgba(54,226,180,.32), transparent 55%), repeating-linear-gradient(45deg, #101622 0 10px, #131a28 10px 20px); }
 .art-versus { background: linear-gradient(120deg, #14342b 0 49.6%, #36e2b4 49.6% 50.4%, #101622 50.4% 100%); }
+.art-coop { background: radial-gradient(circle at 30% 35%, rgba(54,226,180,.45), transparent 50%), radial-gradient(circle at 70% 65%, rgba(100,120,255,.38), transparent 50%), linear-gradient(140deg, #0f1f2c, #101622); }
 .action-body { padding: 18px 20px; }
 .action-body h2 { margin: 0 0 6px; font-size: 19px; font-weight: 700; }
 .action-body p { margin: 0 0 14px; color: var(--text-dim); font-size: 14px; max-width: 52ch; }
@@ -251,37 +252,172 @@ select.input { appearance: auto; }
 .battle-stage-wrap { min-width: 0; }
 .battle-stage {
   position: relative; border-radius: var(--radius);
-  border: 1px solid var(--line-soft);
-  background: linear-gradient(180deg, #131a2e 0%, #0d111c 100%);
+  border: 2px solid rgba(180,140,40,.28);
+  box-shadow:
+    inset 0 0 0 2px rgba(20,30,60,.9),
+    inset 0 0 40px rgba(0,0,0,.5),
+    0 0 0 1px rgba(100,80,20,.2),
+    0 8px 40px rgba(0,0,0,.7);
   height: clamp(340px, 46vw, 500px);
   overflow: hidden;
   perspective: 900px;
 }
-/* 3D scene layers: sky gradient, tilted arena floor, center glow */
+/* ---- Pokemon Stadium scene layers ---- */
+
+/* Evening sky with stars, atmosphere and stadium spotlights */
 .scene-sky {
   position: absolute; inset: 0 0 38% 0;
   background:
-    radial-gradient(ellipse at 75% 10%, rgba(90,130,210,.22), transparent 55%),
-    radial-gradient(ellipse at 20% 30%, rgba(54,226,180,.07), transparent 50%),
-    linear-gradient(180deg, #18203a 0%, #121828 100%);
+    /* Stars */
+    radial-gradient(1.5px 1.5px at 12% 18%, rgba(255,255,255,.75), transparent),
+    radial-gradient(1px 1px at 28% 9%, rgba(255,255,255,.55), transparent),
+    radial-gradient(2px 2px at 47% 6%, rgba(255,255,255,.8), transparent),
+    radial-gradient(1px 1px at 63% 14%, rgba(255,255,255,.6), transparent),
+    radial-gradient(1.5px 1.5px at 78% 8%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 91% 22%, rgba(255,255,255,.5), transparent),
+    radial-gradient(1px 1px at 6% 32%, rgba(255,255,255,.45), transparent),
+    radial-gradient(1.5px 1.5px at 35% 28%, rgba(255,255,255,.5), transparent),
+    radial-gradient(1px 1px at 55% 24%, rgba(255,255,255,.4), transparent),
+    radial-gradient(1px 1px at 85% 30%, rgba(255,255,255,.55), transparent),
+    /* Spotlight cones from upper corners */
+    conic-gradient(from 148deg at 3% -2%, transparent 0deg, rgba(255,245,190,.055) 5deg, transparent 10deg),
+    conic-gradient(from 208deg at 97% -2%, transparent 0deg, rgba(255,245,190,.055) 5deg, transparent 10deg),
+    /* Horizon stadium glow */
+    radial-gradient(ellipse at 50% 110%, rgba(90,55,180,.32), transparent 55%),
+    radial-gradient(ellipse at 50% 115%, rgba(200,120,30,.18), transparent 45%),
+    /* Deep night sky */
+    linear-gradient(180deg, #05080f 0%, #090c1a 18%, #0d1128 42%, #12163a 70%, #1a1248 100%);
 }
+
+/* Crowd + bleacher silhouette ring */
+.scene-crowd {
+  position: absolute;
+  left: -10%; right: -10%;
+  top: 1%; bottom: 40%;
+  clip-path: ellipse(56% 50% at 50% 108%);
+  background:
+    /* Seat row lines */
+    repeating-linear-gradient(0deg, transparent 0 4px, rgba(0,0,0,.18) 4px 5px),
+    /* Crowd color bands — many hues like a real crowd */
+    repeating-linear-gradient(90deg,
+      rgba(210,50,50,.6)   0   3px,
+      rgba(50,70,210,.55)  3px 6px,
+      rgba(50,170,50,.5)   6px 9px,
+      rgba(210,185,40,.55) 9px 12px,
+      rgba(170,50,170,.5)  12px 15px,
+      rgba(50,170,190,.52) 15px 18px,
+      rgba(210,110,40,.5)  18px 21px,
+      rgba(110,50,210,.52) 21px 24px,
+      rgba(210,210,40,.5)  24px 27px,
+      rgba(50,210,120,.5)  27px 30px,
+      rgba(210,80,120,.52) 30px 33px,
+      rgba(30,150,210,.5)  33px 36px
+    ),
+    /* Upper dark stadium structure */
+    linear-gradient(180deg, #080b14 0%, #0d1220 28%, #121a30 65%, #1a2240 100%);
+  animation: crowd-shimmer 5s ease-in-out infinite alternate;
+}
+@keyframes crowd-shimmer {
+  0%   { opacity: .75; filter: brightness(.88) saturate(.9); }
+  50%  { opacity: .88; filter: brightness(.95) saturate(1.05); }
+  100% { opacity: .95; filter: brightness(1.02) saturate(1.1); }
+}
+
+/* Stadium arch / upper rim silhouette */
+.scene-arch {
+  position: absolute;
+  left: -8%; right: -8%;
+  top: 15%; height: 50%;
+  background:
+    radial-gradient(ellipse 52% 45% at 50% 100%,
+      transparent 55%,
+      rgba(8,12,22,.92) 56%,
+      rgba(10,14,24,.95) 60%,
+      transparent 62%
+    );
+  pointer-events: none;
+}
+
+/* Left stadium light beam */
+.scene-light-l {
+  position: absolute;
+  top: 0; left: 9%;
+  width: 120px; height: 65%;
+  background: linear-gradient(175deg, rgba(255,248,200,.11) 0%, transparent 65%);
+  clip-path: polygon(12px 0, 100% 100%, 0 100%);
+  filter: blur(10px);
+  pointer-events: none;
+  animation: light-breathe 7s ease-in-out infinite alternate;
+}
+/* Right stadium light beam */
+.scene-light-r {
+  position: absolute;
+  top: 0; right: 9%;
+  width: 120px; height: 65%;
+  background: linear-gradient(185deg, rgba(255,248,200,.11) 0%, transparent 65%);
+  clip-path: polygon(calc(100% - 12px) 0, 100% 100%, 0 100%);
+  filter: blur(10px);
+  pointer-events: none;
+  animation: light-breathe 7s ease-in-out infinite alternate-reverse;
+}
+@keyframes light-breathe {
+  0%   { opacity: .6; transform: scaleX(1); }
+  100% { opacity: 1;  transform: scaleX(1.05); }
+}
+
+/* 3D battle platform — Pokemon Stadium arena with red/blue sides */
 .scene-floor {
   position: absolute; left: -30%; right: -30%; bottom: -42%; height: 95%;
   transform: rotateX(64deg);
   transform-origin: 50% 0%;
   background:
-    radial-gradient(ellipse at 50% 18%, rgba(54,226,180,.16), transparent 55%),
-    repeating-linear-gradient(0deg, rgba(80,110,160,.12) 0 1px, transparent 1px 52px),
-    repeating-linear-gradient(90deg, rgba(80,110,160,.12) 0 1px, transparent 1px 52px),
-    radial-gradient(ellipse at 50% 30%, #1b2438 0%, #131a2a 55%, #0e1320 100%);
-  border-top: 1px solid rgba(120,160,220,.18);
+    /* Center white circle ring */
+    radial-gradient(ellipse 22% 15% at 50% 22%, transparent 83%, rgba(255,255,255,.22) 84%, rgba(255,255,255,.22) 87%, transparent 88%),
+    /* Inner arena glow */
+    radial-gradient(ellipse 18% 12% at 50% 22%, rgba(180,200,255,.05), transparent),
+    /* Red (left) / Blue (right) platform sides — Pokemon Stadium style */
+    radial-gradient(ellipse 24% 18% at 36% 22%, rgba(180,35,35,.42), transparent),
+    radial-gradient(ellipse 24% 18% at 64% 22%, rgba(35,35,180,.42), transparent),
+    /* Dark arena oval */
+    radial-gradient(ellipse 44% 30% at 50% 22%, #0e1320 0%, #111820 100%),
+    /* Subtle stone tile grid outside arena */
+    repeating-linear-gradient(0deg, rgba(60,80,130,.06) 0 1px, transparent 1px 30px),
+    repeating-linear-gradient(90deg, rgba(60,80,130,.06) 0 1px, transparent 1px 30px),
+    /* Floor base */
+    linear-gradient(180deg, #17202e 0%, #0f1520 100%);
+  border-top: 1px solid rgba(100,120,200,.1);
 }
+
+/* Floating arena particles */
+.scene-particles {
+  position: absolute; inset: 30% 0 0 0;
+  pointer-events: none; z-index: 2;
+  background:
+    radial-gradient(1.5px 1.5px at 18% 60%, rgba(180,200,255,.65), transparent),
+    radial-gradient(1px 1px at 34% 45%, rgba(160,180,255,.5), transparent),
+    radial-gradient(2px 2px at 51% 52%, rgba(200,220,255,.7), transparent),
+    radial-gradient(1px 1px at 66% 58%, rgba(180,200,255,.55), transparent),
+    radial-gradient(1.5px 1.5px at 80% 47%, rgba(160,180,255,.5), transparent),
+    radial-gradient(1px 1px at 10% 75%, rgba(200,220,255,.4), transparent),
+    radial-gradient(1.5px 1.5px at 92% 68%, rgba(180,200,255,.5), transparent),
+    radial-gradient(1px 1px at 44% 78%, rgba(160,180,255,.38), transparent),
+    radial-gradient(1px 1px at 73% 80%, rgba(200,220,255,.42), transparent);
+  animation: particles-drift 11s ease-in-out infinite alternate;
+}
+@keyframes particles-drift {
+  0%   { transform: translateY(0);   opacity: .45; }
+  50%  { transform: translateY(-5px); opacity: .75; }
+  100% { transform: translateY(-10px); opacity: .5; }
+}
+
+/* Center platform glow */
 .scene-glow {
   position: absolute; left: 50%; top: 56%;
-  width: 46%; height: 16%;
+  width: 48%; height: 18%;
   transform: translate(-50%, -50%);
-  background: radial-gradient(ellipse, rgba(54,226,180,.13), transparent 70%);
-  filter: blur(6px);
+  background: radial-gradient(ellipse, rgba(54,226,180,.09), transparent 70%);
+  filter: blur(8px);
+  pointer-events: none;
 }
 .battle-stage.shake { animation: stage-shake .42s ease-in-out; }
 @keyframes stage-shake {

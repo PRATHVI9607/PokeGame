@@ -273,6 +273,78 @@
     $('#queue-status').hidden = true;
   }
 
+  // ---------- co-op doubles ----------
+  function openCoopModal() {
+    const available = lobbyUsers.filter(u => u.id !== myId && u.status === 'lobby');
+    if (available.length < 3) {
+      toast('Need at least 3 other online trainers in the lobby for co-op!', { error: true });
+      return;
+    }
+
+    const makeUserSelect = (label) => {
+      const sel = el('select', { class: 'input', style: 'width:100%' },
+        el('option', { value: '', text: '— Select trainer —' }),
+        ...available.map(u => el('option', { value: u.id, text: u.name })));
+      return {
+        block: el('div', { class: 'field-block', style: 'margin-bottom:10px' },
+          el('label', { class: 'field-label', text: label }), sel),
+        sel,
+      };
+    };
+
+    const partnerF = makeUserSelect('Your partner (ally — controls slot 2)');
+    const opp1F = makeUserSelect('Opponent 1 (controls slot 1)');
+    const opp2F = makeUserSelect('Opponent 2 (controls slot 2)');
+
+    openModal(el('div', {},
+      el('h3', { text: 'Co-op Doubles' }),
+      el('p', { class: 'hint', style: 'margin-top:0', text: 'Each person controls one Pokémon. You and your partner share a team of 6 vs the two opponents.' }),
+      partnerF.block, opp1F.block, opp2F.block,
+      el('div', { class: 'modal-actions' },
+        el('button', {
+          class: 'btn btn-primary', text: 'Send invitations',
+          onclick: () => {
+            const partnerId = partnerF.sel.value;
+            const opp1Id = opp1F.sel.value;
+            const opp2Id = opp2F.sel.value;
+            if (!partnerId || !opp1Id || !opp2Id) {
+              toast('Please select all 3 trainers.', { error: true }); return;
+            }
+            if (new Set([partnerId, opp1Id, opp2Id]).size < 3) {
+              toast('Please select 3 different trainers.', { error: true }); return;
+            }
+            socket.emit('lobby:challenge-coop', { partnerId, opp1Id, opp2Id, mode: 'random' });
+            closeModal();
+          },
+        }),
+        el('button', { class: 'btn btn-ghost', text: 'Cancel', onclick: closeModal }))));
+  }
+
+  $('#btn-coop').addEventListener('click', () => {
+    AudioMan.play('click');
+    openCoopModal();
+  });
+
+  socket.on('lobby:coop-invite-sent', ({ partnerName, opp1Name, opp2Name }) => {
+    toast(`Co-op invitations sent to ${partnerName}, ${opp1Name} and ${opp2Name}. Waiting for all to accept…`);
+  });
+
+  socket.on('lobby:coop-challenged', ({ id, fromName, role }) => {
+    AudioMan.play('notify');
+    const roleLabel = role === 'partner' ? 'your ally' : 'an opponent';
+    toast(`${fromName} invites you to co-op doubles as ${roleLabel}!`, {
+      sticky: true,
+      actions: [
+        { label: 'Accept', primary: true, onClick: () => socket.emit('lobby:coop-accept', { id }) },
+        { label: 'Decline', onClick: () => socket.emit('lobby:coop-decline', { id }) },
+      ],
+    });
+  });
+
+  socket.on('lobby:coop-cancelled', ({ byName }) => {
+    toast(`Co-op session cancelled — ${byName} declined.`, { error: true });
+  });
+
   // ---------- bot battle ----------
   const savedKey = localStorage.getItem('pa_gemini_key') || '';
   $('#gemini-key').value = savedKey;

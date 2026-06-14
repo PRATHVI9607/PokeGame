@@ -24,6 +24,7 @@ const BattleUI = (() => {
   function freshState() {
     return {
       roomId: null, mySide: 0, players: [], gameType: 'singles', numActives: 1,
+      coopSlot: null, // 0 or 1 when this player controls only one doubles slot
       sides: [
         { actives: [null, null], balls: 6, fainted: 0, hazards: {}, screens: {} },
         { actives: [null, null], balls: 6, fainted: 0, hazards: {}, screens: {} },
@@ -31,8 +32,7 @@ const BattleUI = (() => {
       weather: '', terrain: '', trickRoom: false,
       over: false,
       turn: 0,
-      // choice-building state
-      building: null, // { slot, actions: [], gimmickUsed, pendingMove: null (awaiting target) }
+      building: null,
       showSwitch: false,
     };
   }
@@ -783,12 +783,15 @@ const BattleUI = (() => {
 
   function startBuilding() {
     const req = pendingRequest;
+    let order = slotsNeedingAction(req);
+    // In co-op mode each player only controls their assigned slot
+    if (state.coopSlot !== null) order = order.filter(s => s === state.coopSlot);
     state.building = {
-      order: slotsNeedingAction(req),
+      order,
       idx: 0,
       actions: new Array(state.numActives).fill(null),
-      gimmickSel: null,    // gimmick toggled for the CURRENT slot
-      gimmickUsed: false,  // a gimmick is committed in a previous slot
+      gimmickSel: null,
+      gimmickUsed: false,
       usedSwitchTargets: new Set(),
     };
   }
@@ -1029,13 +1032,14 @@ const BattleUI = (() => {
   }
 
   // ---------- public API ----------
-  function begin({ roomId, yourSide, players, gameType }, callbacks) {
+  function begin({ roomId, yourSide, players, gameType, coopSlot }, callbacks) {
     state = freshState();
     state.roomId = roomId;
     state.mySide = yourSide;
     state.players = players;
     state.gameType = gameType === 'doubles' ? 'doubles' : 'singles';
     state.numActives = state.gameType === 'doubles' ? 2 : 1;
+    state.coopSlot = (typeof coopSlot === 'number') ? coopSlot : null;
     sendChoice = callbacks.sendChoice;
     onLeave = callbacks.onLeave;
     onRematch = callbacks.onRematch;
@@ -1060,7 +1064,8 @@ const BattleUI = (() => {
     }
     applyGameTypeLayout();
     renderControlsWaiting('Battle starting…');
-    logLine(`${players[0].name} vs ${players[1].name} · ${state.gameType}`, 'l-turn');
+    const coopTag = state.coopSlot !== null ? ` [co-op slot ${state.coopSlot + 1}]` : '';
+    logLine(`${players[0].name} vs ${players[1].name} · ${state.gameType}${coopTag}`, 'l-turn');
     AudioMan.startMusic();
   }
 
